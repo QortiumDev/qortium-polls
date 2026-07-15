@@ -8,15 +8,15 @@ import { MyPolls } from './MyPolls';
 import { errorText, friendlyWriteError, getAccountVoteIndexes, responseData, versionAtLeast } from './pollFormat';
 import { PollDetail } from './PollDetail';
 import { validateVoteIndexes } from './pollValidation';
-import { getBridgeState, hasAction, qdnRequest } from './qdnRequest';
+import { getBridgeState, qdnRequest } from './qdnRequest';
 import { Reference } from './Reference';
 import type { BridgeState, HostInfo, Poll, PollVotes } from './types';
 import { Notice } from './ui';
+import { getPollWriteAvailability } from './writeAvailability';
 
 type Tab = 'browse' | 'create' | 'mine' | 'reference';
 type Filters = { owner: string; query: string; reverse?: boolean; status: string };
 
-const writeActions = ['CREATE_POLL', 'VOTE_ON_POLL', 'UPDATE_POLL'];
 const emptyBridge: BridgeState = {
   actions: [],
   isHomeBridge: false,
@@ -45,12 +45,16 @@ export function App() {
   const [settings, setSettings] = useState(getInitialDisplaySettings);
   const translate = useMemo(() => createTranslator(settings.language), [settings.language]);
   const supports142 = versionAtLeast(host?.hostVersion);
-  const writeAvailable = !bridge.isUsingPublicNode && writeActions.every((action) => hasAction(bridge.actions, action));
-  const lockedNote = bridge.isUsingPublicNode
-    ? translate('node.publicReadOnly')
-    : !writeAvailable
-      ? translate('node.writeUnavailable')
-      : '';
+  const writeState = getPollWriteAvailability(bridge.actions, !!bridge.isUsingPublicNode);
+  const writeAvailable = writeState.available;
+  const lockedNote = !writeAvailable
+    ? bridge.isUsingPublicNode
+      ? translate('node.publicUnsupported')
+      : translate('node.writeUnavailable')
+    : '';
+  const publicWriteNote = writeState.publicSigning
+    ? translate('node.publicSigning')
+    : '';
 
   useEffect(() => {
     applyDisplaySettings(settings);
@@ -284,6 +288,7 @@ export function App() {
         ))}
       </nav>
       {lockedNote && <Notice tone="warning">{lockedNote}</Notice>}
+      {publicWriteNote && <Notice>{publicWriteNote}</Notice>}
       {message && <Notice tone="error">{message}</Notice>}
       {tab === 'browse' && (
         <BrowsePolls

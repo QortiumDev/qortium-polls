@@ -21,7 +21,7 @@ The browser fallback reads a local Core at `http://127.0.0.1:24891` (override wi
 
 ## Qortium Home Smoke Check
 
-Open `qdn://APP/Polls/Polls` in Home. Browse polls and open a result detail. On a trusted local/custom node with a selected account, Home should approve `CREATE_POLL`, `VOTE_ON_POLL`, and `UPDATE_POLL`. Public-network nodes remain browse-only. Home 1.4.2 enables scheduled starts and multi-option votes.
+Open `qdn://APP/Polls/Polls` in Home. Browse polls and open a result detail. With a selected, unlocked account, Home should approve `CREATE_POLL`, `VOTE_ON_POLL`, and `UPDATE_POLL` on trusted local/custom nodes and on compatible public nodes. Public-node writes use unsigned Core builders, strict client-side validation, bounded local MemoryPoW, and local signing; the private key never leaves Home. Proof of work can take up to three minutes, and older public nodes remain browse-only. Home 1.4.2 enables scheduled starts and multi-option votes.
 
 ## Publishing
 

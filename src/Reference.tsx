@@ -92,8 +92,9 @@ export function Reference({ supports142 }: { supports142: boolean }) {
           <p>
             Write actions trigger Home approval: CREATE_POLL, VOTE_ON_POLL, UPDATE_POLL. Reads use FETCH_NODE_API without approval.
             Inspect QAVS/available actions with SHOW_ACTIONS, then call GET_HOST_INFO; require Home 1.4.2 for <code>startTime</code>,
-            <code>newStartTime</code>, and <code>optionIndexes</code>. A thrown host-info request means old host. Public nodes are browse-only:
-            call IS_USING_PUBLIC_NODE.
+            <code>newStartTime</code>, and <code>optionIndexes</code>. A thrown host-info request means old host. On compatible public nodes,
+            Home builds through <code>/polls/public/*</code>, validates the returned bytes, computes bounded MemoryPoW, and signs locally.
+            Older public nodes remain browse-only; call IS_USING_PUBLIC_NODE and trust SHOW_ACTIONS for action availability.
           </p>
           {(Object.entries(snippets) as [keyof typeof snippets, string][]).map(([key, snippet]) => (
             <div key={key}>

@@ -1,7 +1,14 @@
 // Demonstrates UPDATE_POLL's owner-only full replacement and post-vote end-time extension rule.
 import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import { fromDateInput, isClosed, responseData, toDateInput } from './pollFormat';
+import {
+  fromDateInput,
+  isClosed,
+  isUnchangedDateInput,
+  preservedDateInputValue,
+  responseData,
+  toDateInput,
+} from './pollFormat';
 import { validatePollFields } from './pollValidation';
 import { qdnRequest } from './qdnRequest';
 import type { TranslateFunction } from './i18n';
@@ -59,11 +66,12 @@ export function EditPoll({
     };
   }, [poll.pollId]);
 
+  const startUnchanged = isUnchangedDateInput(start, poll.startTime);
   const validation = validatePollFields({
     name,
     description,
     options,
-    startTime: fromDateInput(start),
+    startTime: startUnchanged ? undefined : fromDateInput(start),
     endTime: fromDateInput(end),
     now: Date.now(),
   });
@@ -82,7 +90,7 @@ export function EditPoll({
       newPollName: name,
       newDescription: description,
       newPollOptions: options,
-      ...(supports142 ? { newStartTime: fromDateInput(start) } : {}),
+      ...(supports142 ? { newStartTime: preservedDateInputValue(start, poll.startTime) } : {}),
       newEndTime: fromDateInput(end),
     });
   }

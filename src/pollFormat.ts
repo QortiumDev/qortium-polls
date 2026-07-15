@@ -1,5 +1,5 @@
 import type { TranslateFunction } from './i18n';
-import type { Poll } from './types';
+import type { Poll, PollVotes } from './types';
 
 export function errorText(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -36,6 +36,24 @@ export function fromDateInput(value: string) {
   return value ? new Date(value).getTime() : undefined;
 }
 
+export function isUnchangedDateInput(value: string, original: number | null | undefined) {
+  return value === toDateInput(original);
+}
+
+export function preservedDateInputValue(value: string, original: number | null | undefined) {
+  return isUnchangedDateInput(value, original) ? original ?? undefined : fromDateInput(value);
+}
+
+export function getAccountVoteIndexes(votes: PollVotes | null, account: string) {
+  const vote = votes?.voteDetails?.find((item) => item.voterAddress === account);
+
+  if (Array.isArray(vote?.optionIndexes)) {
+    return vote.optionIndexes;
+  }
+
+  return typeof vote?.optionIndex === 'number' && vote.optionIndex > 0 ? [vote.optionIndex] : [];
+}
+
 export function isScheduled(poll: Poll, now = Date.now()) {
   return !!poll.startTime && poll.startTime > now;
 }
@@ -57,8 +75,26 @@ export function stateLabel(poll: Poll, translate: TranslateFunction) {
 }
 
 export function responseData<T>(value: unknown): T {
-  if (value && typeof value === 'object' && 'data' in value) {
-    return (value as { data: T }).data;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const response = value as {
+      body?: unknown;
+      data?: T;
+      ok?: unknown;
+      status?: unknown;
+      statusText?: unknown;
+    };
+
+    if (typeof response.ok === 'boolean' && !response.ok) {
+      const body = typeof response.body === 'string' ? response.body.trim() : '';
+      const status = typeof response.status === 'number' ? response.status : 0;
+      const statusText = typeof response.statusText === 'string' ? response.statusText.trim() : '';
+
+      throw new Error(body || `Node API failed with HTTP ${status}${statusText ? ` ${statusText}` : ''}.`);
+    }
+
+    if ('data' in response) {
+      return response.data as T;
+    }
   }
 
   return value as T;

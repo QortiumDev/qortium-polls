@@ -5,7 +5,7 @@ import { CreatePoll } from './CreatePoll';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
 import { createTranslator } from './i18n';
 import { MyPolls } from './MyPolls';
-import { errorText, friendlyWriteError, responseData, versionAtLeast } from './pollFormat';
+import { errorText, friendlyWriteError, getAccountVoteIndexes, responseData, versionAtLeast } from './pollFormat';
 import { PollDetail } from './PollDetail';
 import { validateVoteIndexes } from './pollValidation';
 import { getBridgeState, hasAction, qdnRequest } from './qdnRequest';
@@ -29,6 +29,7 @@ export function App() {
   const [bridge, setBridge] = useState(emptyBridge);
   const [host, setHost] = useState<HostInfo | null>(null);
   const [polls, setPolls] = useState<Poll[]>([]);
+  const [myPolls, setMyPolls] = useState<Poll[]>([]);
   const [selected, setSelected] = useState<Poll | null>(null);
   const [votes, setVotes] = useState<PollVotes | null>(null);
   const [query, setQuery] = useState('');
@@ -38,6 +39,7 @@ export function App() {
   const [offset, setOffset] = useState(0);
   const [account, setAccount] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMine, setLoadingMine] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState(getInitialDisplaySettings);
@@ -90,8 +92,15 @@ export function App() {
     }
   }
 
-  async function loadPolls(nextOffset = offset, filters: Filters = { query, owner, status, reverse }) {
-    setLoading(true);
+  async function loadPolls(
+    nextOffset = offset,
+    filters: Filters = { query, owner, status, reverse },
+    destination: 'browse' | 'mine' = 'browse',
+  ) {
+    const setDestinationPolls = destination === 'mine' ? setMyPolls : setPolls;
+    const setDestinationLoading = destination === 'mine' ? setLoadingMine : setLoading;
+
+    setDestinationLoading(true);
     setMessage('');
 
     try {
@@ -115,13 +124,16 @@ export function App() {
         path: `/polls/search?${params}`,
         maxBytes: 1_000_000,
       }));
-      setPolls(Array.isArray(result) ? result : []);
-      setOffset(nextOffset);
+      setDestinationPolls(Array.isArray(result) ? result : []);
+
+      if (destination === 'browse') {
+        setOffset(nextOffset);
+      }
     } catch (error) {
-      setPolls([]);
+      setDestinationPolls([]);
       setMessage(errorText(error, translate('error.loadPolls')));
     } finally {
-      setLoading(false);
+      setDestinationLoading(false);
     }
   }
 
@@ -167,6 +179,7 @@ export function App() {
         optionCount: selected.pollOptions.length,
         optionIndexes: supports142 ? indexes : undefined,
         optionIndex: supports142 ? undefined : indexes[0] ?? 0,
+        previousIndexes: getAccountVoteIndexes(votes, account),
       });
 
       if (!validation.ok) {
@@ -262,7 +275,7 @@ export function App() {
               setTab(key);
 
               if (key === 'mine' && account) {
-                void loadPolls(0, { query: '', owner: account, status: 'ALL' });
+                void loadPolls(0, { query: '', owner: account, status: 'ALL' }, 'mine');
               }
             }}
           >
@@ -308,8 +321,8 @@ export function App() {
       {tab === 'mine' && (
         <MyPolls
           account={account}
-          polls={polls}
-          loading={loading}
+          polls={myPolls}
+          loading={loadingMine}
           supports142={supports142}
           writeAvailable={writeAvailable}
           lockedNote={lockedNote}

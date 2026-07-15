@@ -368,7 +368,12 @@ label { display: grid; gap: 0.36em; font-weight: 650; }
 .filters > button { align-self: end; }
 
 .poll-list { display: grid; gap: 10px; }
-.poll-row { text-align: start; width: 100%; }
+.poll-row {
+  color: var(--qp-text-primary);
+  justify-content: space-between;
+  text-align: start;
+  width: 100%;
+}
 button.poll-row:hover:not(:disabled) { box-shadow: var(--qp-shadow-hover); transform: translateY(-1px); }
 .poll-row > div:first-child { display: grid; gap: 0.25em; min-width: 0; }
 .poll-row span { color: var(--qp-text-secondary); font-size: var(--qp-text-small); overflow-wrap: anywhere; }

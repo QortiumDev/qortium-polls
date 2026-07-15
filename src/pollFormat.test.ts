@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { friendlyWriteError, versionAtLeast } from './pollFormat';
+import {
+  friendlyWriteError,
+  getAccountVoteIndexes,
+  preservedDateInputValue,
+  responseData,
+  toDateInput,
+  versionAtLeast,
+} from './pollFormat';
 
 describe('versionAtLeast', () => {
   it.each([
@@ -25,5 +32,36 @@ describe('friendlyWriteError', () => {
     ['not an error', fallback],
   ])('returns a useful write error for %#', (error, expected) => {
     expect(friendlyWriteError(error, fallback)).toBe(expected);
+  });
+});
+
+describe('node response and poll edit helpers', () => {
+  it('throws the Core response body for a failed FETCH_NODE_API envelope', () => {
+    expect(() => responseData({
+      body: 'POLL_NO_EXISTS',
+      data: null,
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+    })).toThrow('POLL_NO_EXISTS');
+  });
+
+  it('unwraps successful FETCH_NODE_API data', () => {
+    expect(responseData({ body: '[]', data: [1, 2], ok: true, status: 200, statusText: 'OK' })).toEqual([1, 2]);
+  });
+
+  it('preserves exact milliseconds when an existing start input is unchanged', () => {
+    const original = Date.UTC(2026, 6, 15, 12, 34, 56, 789);
+
+    expect(preservedDateInputValue(toDateInput(original), original)).toBe(original);
+  });
+
+  it('finds both modern and legacy stored vote indexes', () => {
+    expect(getAccountVoteIndexes({ voteDetails: [{ voterAddress: 'Qone', optionIndexes: [1, 3] }] }, 'Qone'))
+      .toEqual([1, 3]);
+    expect(getAccountVoteIndexes({ voteDetails: [{ voterAddress: 'Qone', optionIndex: 2 }] }, 'Qone'))
+      .toEqual([2]);
+    expect(getAccountVoteIndexes({ voteDetails: [{ voterAddress: 'Qtwo', optionIndexes: [1] }] }, 'Qone'))
+      .toEqual([]);
   });
 });

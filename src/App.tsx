@@ -1,164 +1,325 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { getBridgeState, qdnRequest } from './qdnRequest';
-import type { BridgeState, NodeStatus, QdnResource } from './types';
+import { useEffect, useMemo, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { BrowsePolls, POLL_PAGE_SIZE } from './BrowsePolls';
+import { CreatePoll } from './CreatePoll';
+import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
+import { createTranslator } from './i18n';
+import { MyPolls } from './MyPolls';
+import { errorText, friendlyWriteError, responseData, versionAtLeast } from './pollFormat';
+import { PollDetail } from './PollDetail';
+import { validateVoteIndexes } from './pollValidation';
+import { getBridgeState, hasAction, qdnRequest } from './qdnRequest';
+import { Reference } from './Reference';
+import type { BridgeState, HostInfo, Poll, PollVotes } from './types';
+import { Notice } from './ui';
 
-const APP_TITLE = 'Polls';
+type Tab = 'browse' | 'create' | 'mine' | 'reference';
+type Filters = { owner: string; query: string; reverse?: boolean; status: string };
 
-function formatStatus(status: NodeStatus | null) {
-  if (!status) {
-    return 'Unavailable';
-  }
-
-  if (typeof status.syncPercent === 'number') {
-    return `${status.syncPercent}% synced`;
-  }
-
-  if (typeof status.syncPhase === 'string') {
-    return status.syncPhase;
-  }
-
-  return 'Connected';
-}
-
-function getResourceKey(resource: QdnResource, index: number) {
-  return `${resource.service ?? 'APP'}:${resource.name ?? 'unknown'}:${resource.identifier ?? index}`;
-}
-
-function getResourceTitle(resource: QdnResource) {
-  return resource.title || resource.identifier || resource.name || 'Untitled resource';
-}
+const writeActions = ['CREATE_POLL', 'VOTE_ON_POLL', 'UPDATE_POLL'];
+const emptyBridge: BridgeState = {
+  actions: [],
+  isHomeBridge: false,
+  isUsingPublicNode: false,
+  ui: 'BROWSER_DEV',
+};
 
 export function App() {
-  const [bridgeState, setBridgeState] = useState<BridgeState | null>(null);
-  const [nodeStatus, setNodeStatus] = useState<NodeStatus | null>(null);
-  const [resources, setResources] = useState<QdnResource[]>([]);
+  const [tab, setTab] = useState<Tab>('browse');
+  const [bridge, setBridge] = useState(emptyBridge);
+  const [host, setHost] = useState<HostInfo | null>(null);
+  const [polls, setPolls] = useState<Poll[]>([]);
+  const [selected, setSelected] = useState<Poll | null>(null);
+  const [votes, setVotes] = useState<PollVotes | null>(null);
   const [query, setQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [owner, setOwner] = useState('');
+  const [status, setStatus] = useState('OPEN');
+  const [reverse, setReverse] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [account, setAccount] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [settings, setSettings] = useState(getInitialDisplaySettings);
+  const translate = useMemo(() => createTranslator(settings.language), [settings.language]);
+  const supports142 = versionAtLeast(host?.hostVersion);
+  const writeAvailable = !bridge.isUsingPublicNode && writeActions.every((action) => hasAction(bridge.actions, action));
+  const lockedNote = bridge.isUsingPublicNode
+    ? translate('node.publicReadOnly')
+    : !writeAvailable
+      ? translate('node.writeUnavailable')
+      : '';
 
-  const statusLabel = useMemo(() => formatStatus(nodeStatus), [nodeStatus]);
+  useEffect(() => {
+    applyDisplaySettings(settings);
+  }, [settings]);
 
-  async function refresh() {
-    setIsLoading(true);
-    setError('');
+  useEffect(() => {
+    function listener(event: MessageEvent) {
+      const updated = getDisplaySettingsUpdateFromMessage(event.data, settings);
 
+      if (updated) {
+        setSettings(updated);
+      }
+    }
+
+    window.addEventListener('message', listener);
+
+    return () => window.removeEventListener('message', listener);
+  }, [settings]);
+
+  async function loadContext() {
     try {
-      const [state, status] = await Promise.all([
-        getBridgeState(),
-        qdnRequest<NodeStatus>({ action: 'GET_NODE_STATUS' }),
-      ]);
+      const state = await getBridgeState();
+      setBridge(state);
 
-      setBridgeState(state);
-      setNodeStatus(status);
-    } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
-    } finally {
-      setIsLoading(false);
+      try {
+        setHost(await qdnRequest<HostInfo>({ action: 'GET_HOST_INFO' }));
+      } catch {
+        setHost(null);
+      }
+
+      try {
+        const selectedAccount = await qdnRequest<{ address?: string }>({ action: 'GET_SELECTED_ACCOUNT' });
+        setAccount(selectedAccount.address ?? '');
+      } catch {
+        setAccount('');
+      }
+    } catch (error) {
+      setMessage(errorText(error, translate('error.default')));
     }
   }
 
-  async function searchResources(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    setError('');
+  async function loadPolls(nextOffset = offset, filters: Filters = { query, owner, status, reverse }) {
+    setLoading(true);
+    setMessage('');
 
     try {
-      const result = await qdnRequest<unknown>({
-        action: 'SEARCH_QDN_RESOURCES',
-        includeMetadata: true,
-        includeStatus: true,
-        limit: 12,
-        mode: 'ALL',
-        query,
-        service: 'APP',
+      const params = new URLSearchParams({
+        limit: String(POLL_PAGE_SIZE),
+        offset: String(nextOffset),
+        reverse: String(filters.reverse ?? reverse),
+        status: filters.status,
       });
 
-      setResources(Array.isArray(result) ? (result as QdnResource[]) : []);
-    } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : String(searchError));
+      if (filters.query.trim()) {
+        params.set('query', filters.query.trim());
+      }
+
+      if (filters.owner.trim()) {
+        params.set('owner', filters.owner.trim());
+      }
+
+      const result = responseData<Poll[]>(await qdnRequest({
+        action: 'FETCH_NODE_API',
+        path: `/polls/search?${params}`,
+        maxBytes: 1_000_000,
+      }));
+      setPolls(Array.isArray(result) ? result : []);
+      setOffset(nextOffset);
+    } catch (error) {
+      setPolls([]);
+      setMessage(errorText(error, translate('error.loadPolls')));
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    refresh();
+    void loadContext().then(() => loadPolls(0));
   }, []);
 
-  useEffect(() => {
-    if (bridgeState) {
-      searchResources();
+  async function openPoll(poll: Poll) {
+    setSelected(poll);
+    setVotes(null);
+    setTab('browse');
+
+    try {
+      const result = responseData<PollVotes>(await qdnRequest({
+        action: 'FETCH_NODE_API',
+        path: `/polls/votes/id/${poll.pollId}?onlyCounts=false`,
+        maxBytes: 2_000_000,
+      }));
+      setVotes(result);
+    } catch (error) {
+      setMessage(errorText(error, translate('error.loadResults')));
     }
-  }, [bridgeState]);
+  }
+
+  function refresh() {
+    void loadContext().then(() => loadPolls(offset));
+
+    if (selected) {
+      void openPoll(selected);
+    }
+  }
+
+  async function submitVote(indexes: number[]) {
+    if (!selected) {
+      return;
+    }
+
+    setBusy(true);
+    setMessage('');
+
+    try {
+      const validation = validateVoteIndexes({
+        optionCount: selected.pollOptions.length,
+        optionIndexes: supports142 ? indexes : undefined,
+        optionIndex: supports142 ? undefined : indexes[0] ?? 0,
+      });
+
+      if (!validation.ok) {
+        throw new Error(validation.code);
+      }
+
+      await qdnRequest({
+        action: 'VOTE_ON_POLL',
+        pollId: selected.pollId,
+        ...(supports142 ? { optionIndexes: indexes } : { optionIndex: indexes[0] ?? 0 }),
+      });
+      setMessage(translate('status.submittedVote'));
+    } catch (error) {
+      setMessage(friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitCreate(request: Record<string, unknown>) {
+    setBusy(true);
+    setMessage('');
+
+    try {
+      await qdnRequest({ action: 'CREATE_POLL', ...request });
+      setMessage(translate('status.submittedCreate'));
+    } catch (error) {
+      setMessage(friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitUpdate(request: Record<string, unknown>) {
+    setBusy(true);
+    setMessage('');
+
+    try {
+      await qdnRequest({ action: 'UPDATE_POLL', ...request });
+      setMessage(translate('status.submittedUpdate'));
+    } catch (error) {
+      setMessage(friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (selected) {
+    return (
+      <PollDetail
+        poll={selected}
+        votes={votes}
+        account={account}
+        language={settings.language}
+        supports142={supports142}
+        writeAvailable={writeAvailable}
+        lockedNote={lockedNote}
+        busy={busy}
+        message={message}
+        translate={translate}
+        onBack={() => setSelected(null)}
+        onRefresh={() => void openPoll(selected)}
+        onVote={submitVote}
+      />
+    );
+  }
+
+  const tabs: [Tab, ReturnType<typeof translate>][] = [
+    ['browse', translate('tab.browse')],
+    ['create', translate('tab.create')],
+    ['mine', translate('tab.mine')],
+    ['reference', translate('tab.reference')],
+  ];
 
   return (
     <main className="app-shell">
-      <section className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Qortium QDN</p>
-            <h1>{APP_TITLE}</h1>
-          </div>
-          <button className="icon-button" type="button" onClick={refresh} aria-label="Refresh node status">
-            Refresh
-          </button>
-        </header>
-
-        <div className="status-grid">
-          <article className="panel">
-            <span className="panel-label">Runtime</span>
-            <strong>{bridgeState?.ui ?? 'Detecting'}</strong>
-            <span>{bridgeState?.isHomeBridge ? 'Qortium Home bridge' : 'Local browser fallback'}</span>
-          </article>
-          <article className="panel">
-            <span className="panel-label">Node</span>
-            <strong>{statusLabel}</strong>
-            <span>
-              Height {typeof nodeStatus?.height === 'number' ? nodeStatus.height.toLocaleString() : 'unknown'}
-            </span>
-          </article>
-          <article className="panel">
-            <span className="panel-label">Actions</span>
-            <strong>{bridgeState?.actions.length ?? 0}</strong>
-            <span>available bridge actions</span>
-          </article>
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">{translate('app.eyebrow', { version: __APP_VERSION__ })}</p>
+          <h1>{translate('app.title')}</h1>
+          <p className="subtitle">{translate('app.subtitle')}</p>
         </div>
+        <button className="icon-button" onClick={refresh} aria-label={translate('aria.refresh')}>
+          <RefreshCw size={18} />
+        </button>
+      </header>
+      <nav className="tabs" aria-label={translate('aria.pollSections')}>
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            className={tab === key ? 'tab active' : 'tab'}
+            onClick={() => {
+              setTab(key);
 
-        {error ? <div className="notice">{error}</div> : null}
-        {isLoading ? <div className="notice muted">Loading node context...</div> : null}
-
-        <section className="resource-section">
-          <div className="section-heading">
-            <div>
-              <h2>QDN Apps</h2>
-              <p>Search published APP resources from the active Qortium node.</p>
-            </div>
-          </div>
-
-          <form className="search-row" onSubmit={searchResources}>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by name, title, or keyword"
-              aria-label="Search QDN apps"
-            />
-            <button type="submit">Search</button>
-          </form>
-
-          <div className="resource-list">
-            {resources.map((resource, index) => (
-              <article className="resource-item" key={getResourceKey(resource, index)}>
-                <div>
-                  <strong>{getResourceTitle(resource)}</strong>
-                  <span>
-                    qdn://{resource.service ?? 'APP'}/{resource.name ?? 'unknown'}
-                    {resource.identifier ? `/${resource.identifier}` : ''}
-                  </span>
-                </div>
-                <span className="status-pill">{resource.status ?? 'listed'}</span>
-              </article>
-            ))}
-            {!resources.length ? <div className="empty-state">No APP resources loaded.</div> : null}
-          </div>
-        </section>
-      </section>
+              if (key === 'mine' && account) {
+                void loadPolls(0, { query: '', owner: account, status: 'ALL' });
+              }
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      {lockedNote && <Notice tone="warning">{lockedNote}</Notice>}
+      {message && <Notice tone="error">{message}</Notice>}
+      {tab === 'browse' && (
+        <BrowsePolls
+          polls={polls}
+          loading={loading}
+          query={query}
+          owner={owner}
+          status={status}
+          reverse={reverse}
+          offset={offset}
+          language={settings.language}
+          translate={translate}
+          onQuery={setQuery}
+          onOwner={setOwner}
+          onStatus={setStatus}
+          onReverse={setReverse}
+          onSearch={(event) => {
+            event.preventDefault();
+            void loadPolls(0);
+          }}
+          onPage={(value) => void loadPolls(Math.max(0, value))}
+          onOpen={openPoll}
+        />
+      )}
+      {tab === 'create' && (
+        <CreatePoll
+          supports142={supports142}
+          writeAvailable={writeAvailable}
+          lockedNote={lockedNote}
+          onSubmit={submitCreate}
+          busy={busy}
+          translate={translate}
+        />
+      )}
+      {tab === 'mine' && (
+        <MyPolls
+          account={account}
+          polls={polls}
+          loading={loading}
+          supports142={supports142}
+          writeAvailable={writeAvailable}
+          lockedNote={lockedNote}
+          onOpen={openPoll}
+          onUpdate={submitUpdate}
+          busy={busy}
+          translate={translate}
+        />
+      )}
+      {tab === 'reference' && <Reference supports142={supports142} />}
     </main>
   );
 }

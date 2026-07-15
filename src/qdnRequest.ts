@@ -241,6 +241,7 @@ export async function qdnRequest<T = unknown>(request: QdnRequest): Promise<T> {
 export async function getBridgeState(): Promise<BridgeState> {
   let actions: string[] = [];
   let ui = hasHomeBridge() ? 'QORTIUM_HOME' : 'BROWSER_DEV';
+  let isUsingPublicNode = false;
 
   try {
     const requestedActions = await qdnRequest<unknown>({ action: 'SHOW_ACTIONS' });
@@ -250,6 +251,12 @@ export async function getBridgeState(): Promise<BridgeState> {
       : [];
   } catch {
     actions = [...LOCAL_READ_ACTIONS];
+  }
+
+  try {
+    isUsingPublicNode = (await qdnRequest<unknown>({ action: 'IS_USING_PUBLIC_NODE' })) === true;
+  } catch {
+    // Old hosts did not expose this read-only mode signal.
   }
 
   try {
@@ -265,6 +272,12 @@ export async function getBridgeState(): Promise<BridgeState> {
   return {
     actions,
     isHomeBridge: hasHomeBridge(),
+    isUsingPublicNode,
     ui,
   };
+}
+
+export function hasAction(actions: string[], ...candidates: string[]) {
+  const available = new Set(actions.map((action) => action.toUpperCase()));
+  return candidates.some((candidate) => available.has(candidate.toUpperCase()));
 }

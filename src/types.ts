@@ -1,6 +1,7 @@
 export type BridgeState = {
   actions: string[];
   isHomeBridge: boolean;
+  isUsingPublicNode?: boolean;
   ui: string;
 };
 
@@ -34,4 +35,50 @@ export type NodeStatus = {
   syncPercent?: number;
   syncPhase?: string;
   [key: string]: unknown;
+};
+
+export type HostInfo = {
+  hostName?: string;
+  hostVersion?: string;
+  platformVersion?: string;
+};
+
+export type PollOption = {
+  optionName: string;
+};
+
+export type Poll = {
+  pollId: number;
+  pollName: string;
+  description?: string;
+  owner: string;
+  pollOptions: PollOption[];
+  published?: number;
+  startTime?: number | null;
+  endTime?: number | null;
+};
+
+export type PollVotes = {
+  totalVotes?: number;
+  totalVoters?: number;
+  totalWeight?: number;
+  rawTotalWeight?: number;
+  voteCounts?: {
+    optionName: string;
+    voteCount: number;
+  }[];
+  voteWeights?: {
+    optionName: string;
+    voteWeight: number;
+    rawVoteWeight: number;
+  }[];
+  voteDetails?: {
+    voterAddress: string;
+    optionIndexes?: number[];
+    optionIndex?: number;
+    rawVoteWeight?: number;
+    trustStatus?: string;
+    trustWeightPercent?: number;
+    effectiveVoteWeight?: number;
+  }[];
 };

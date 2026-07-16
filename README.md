@@ -4,9 +4,10 @@ A QDN app for browsing, creating, managing, and voting on Qortium on-chain polls
 
 ## Development
 
-Dependencies are supplied with this checkout. Run locally:
+Install dependencies with `npm install` (or `npm ci` for a lockfile-exact install), then run locally:
 
 ```sh
+npm install
 npm run dev -- --host 127.0.0.1
 ```
 
@@ -19,9 +20,15 @@ npm test
 
 The browser fallback reads a local Core at `http://127.0.0.1:24891` (override with `VITE_QORTIUM_NODE_API_URL`). It is deliberately read-only.
 
+The app follows Home's display settings, including the Classic, Modern, and Fun UI styles.
+
+## Versioning
+
+Polls follows the Qortium app versioning standard (QAVS): the current app version is 1.5.0, where the `1.5` prefix declares the minimum Qortium platform level the app is built against and the last number is the app's own release counter. The build emits a `qortium-app.json` manifest (see `vite.config.ts`) that Qortium Home reads from the published root.
+
 ## Qortium Home Smoke Check
 
-Open `qdn://APP/Polls/Polls` in Home. Browse polls and open a result detail. With a selected, unlocked account, Home should approve `CREATE_POLL`, `VOTE_ON_POLL`, and `UPDATE_POLL` on trusted local/custom nodes and on compatible public nodes. Public-node writes use unsigned Core builders, strict client-side validation, bounded local MemoryPoW, and local signing; the private key never leaves Home. Proof of work can take up to three minutes, and older public nodes remain browse-only. Home 1.4.2 enables scheduled starts and multi-option votes.
+Open `qdn://APP/Polls/Polls` in Home. Browse polls and open a result detail. With a selected, unlocked account, Home should approve `CREATE_POLL`, `VOTE_ON_POLL`, and `UPDATE_POLL` on trusted local/custom nodes and on compatible public nodes. Public-node writes use unsigned Core builders, strict client-side validation, bounded local MemoryPoW, and local signing; the private key never leaves Home. Proof of work can take up to three minutes, and older public nodes remain browse-only. The app declares minimum platform level 1.5 via QAVS; scheduled starts (`startTime`/`newStartTime`) and multi-option votes (`optionIndexes`) originated in Home 1.4.2, and the app feature-detects them via `GET_HOST_INFO` on older hosts.
 
 ## Publishing
 

@@ -648,3 +648,38 @@ td { overflow-wrap: anywhere; }
   :root[data-ui='fun'] button:active:not(:disabled) { transform: none; }
   :root[data-ui='modern'] button { transition: none; }
 }
+
+/* Keep the shell aligned when route height adds/removes the vertical scrollbar.
+   All styles can use the full app window; Modern deliberately retains a
+   roomier outer gutter than Classic and Fun. */
+html {
+  scrollbar-gutter: stable;
+}
+
+.app-shell {
+  margin-inline: 0;
+  max-width: none;
+  padding: clamp(10px, 1.25vw, 20px);
+  width: 100%;
+}
+
+:root[data-ui='modern'] .app-shell {
+  max-width: none;
+  padding-block: clamp(18px, 2.4vw, 36px);
+  padding-inline: clamp(16px, 3vw, 48px);
+}
+
+:root[data-ui='fun'] .app-shell {
+  max-width: none;
+  padding: clamp(10px, 1.5vw, 24px);
+}
+
+.form-page {
+  width: min(100%, 960px);
+}
+
+@media (max-width: 720px) {
+  :root[data-ui='modern'] .app-shell {
+    padding: 12px;
+  }
+}

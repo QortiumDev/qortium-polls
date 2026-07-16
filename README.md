@@ -20,11 +20,17 @@ npm test
 
 The browser fallback reads a local Core at `http://127.0.0.1:24891` (override with `VITE_QORTIUM_NODE_API_URL`). It is deliberately read-only.
 
-The app follows Home's display settings, including the Classic, Modern, and Fun UI styles.
+The app follows Home's display settings, including the Classic, Modern, and Fun
+UI styles. It uses the full available app window with responsive gutters;
+Modern keeps a wider outer gutter while Classic and Fun stay tighter.
 
 ## Versioning
 
-Polls follows the Qortium app versioning standard (QAVS): the current app version is 1.5.0, where the `1.5` prefix declares the minimum Qortium platform level the app is built against and the last number is the app's own release counter. The build emits a `qortium-app.json` manifest (see `vite.config.ts`) that Qortium Home reads from the published root.
+Polls follows the Qortium app versioning standard (QAVS): the current app
+version is 1.5.5, where the `1.5` prefix declares the minimum Qortium platform
+level the app is built against and the last number is the app's own release
+counter. The build emits a `qortium-app.json` manifest (see `vite.config.ts`)
+that Qortium Home reads from the published root.
 
 ## Qortium Home Smoke Check
 

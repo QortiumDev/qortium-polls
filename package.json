@@ -1,6 +1,6 @@
 {
   "name": "qortium-polls",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "private": true,
   "license": "0BSD",
   "description": "Create, browse, and vote on Qortium on-chain polls — and a living reference for the poll/vote system.",

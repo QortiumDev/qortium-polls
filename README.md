@@ -30,6 +30,8 @@ Polls follows the Qortium app versioning standard (QAVS): the current app versio
 
 Open `qdn://APP/Polls/Polls` in Home. Browse polls and open a result detail. With a selected, unlocked account, Home should approve `CREATE_POLL`, `VOTE_ON_POLL`, and `UPDATE_POLL` on trusted local/custom nodes and on compatible public nodes. Public-node writes use unsigned Core builders, strict client-side validation, bounded local MemoryPoW, and local signing; the private key never leaves Home. Proof of work can take up to three minutes, and older public nodes remain browse-only. The app declares minimum platform level 1.5 via QAVS; scheduled starts (`startTime`/`newStartTime`) and multi-option votes (`optionIndexes`) originated in Home 1.4.2, and the app feature-detects them via `GET_HOST_INFO` on older hosts.
 
+Poll details can be linked directly by stable numeric ID, for example `qdn://APP/Polls/Polls/1`. The detail page includes a Copy link action and preserves the current QDN service, publisher name, and identifier when the app is republished under another identity.
+
 ## Publishing
 
 `npm run qdn:publish` builds and publishes `dist/` as `qdn://APP/Polls/Polls`. It expects the local Previewnet Core and account files under `~/qortium/git/qortium-core/preview/` by default. Override any value explicitly when needed:

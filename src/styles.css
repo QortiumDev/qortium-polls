@@ -423,7 +423,10 @@ button.poll-row:hover:not(:disabled) {
 
 .detail { gap: 16px; }
 .detail-heading { align-items: start; flex-wrap: wrap; }
-.detail-heading > div { display: grid; gap: 0.55em; min-width: 0; }
+.detail-heading > div:first-child { display: grid; gap: 0.55em; min-width: 0; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-inline-start: auto; }
+.linked-poll-error { display: grid; gap: 12px; justify-items: start; }
+.linked-poll-error .notice { margin: 0; }
 .detail-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.5fr) minmax(250px, 0.9fr); }
 .results,
 .vote-panel,

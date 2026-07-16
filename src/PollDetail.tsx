@@ -1,7 +1,7 @@
 // Poll results and voting, with an optimistic pending-vote preview while the
 // network records the vote.
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Loader2, RefreshCw, Vote } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, Copy, Loader2, RefreshCw, Vote } from 'lucide-react';
 import { dateText, isClosed, isScheduled, stateKey, stateLabel } from './pollFormat';
 import type { TranslateFunction, MessageKey } from './i18n';
 import type { PendingVote, Poll, PollVotes } from './types';
@@ -18,6 +18,7 @@ type PollDetailProps = {
   onVote: (indexes: number[]) => void;
   pendingVote: PendingVote | null;
   poll: Poll;
+  shareAddress: string;
   supports142: boolean;
   translate: TranslateFunction;
   votes: PollVotes | null;
@@ -43,12 +44,14 @@ export function PollDetail({
   onVote,
   pendingVote,
   poll,
+  shareAddress,
   supports142,
   translate,
   votes,
   writeAvailable,
 }: PollDetailProps) {
   const [chosen, setChosen] = useState<number[]>([]);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const [touchedChoices, setTouchedChoices] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const mine = votes?.voteDetails?.find((vote) => vote.voterAddress === account)?.optionIndexes ?? [];
@@ -111,6 +114,16 @@ export function PollDetail({
     });
   }
 
+  async function copyPollLink() {
+    try {
+      await navigator.clipboard.writeText(shareAddress);
+      setCopyState('copied');
+      window.setTimeout(() => setCopyState('idle'), 2_500);
+    } catch {
+      setCopyState('error');
+    }
+  }
+
   return (
     <main className="app-shell">
       <button className="back-button" onClick={onBack}>
@@ -126,12 +139,19 @@ export function PollDetail({
             <h1>{poll.pollName}</h1>
             <p>{poll.description || translate('label.noDescription')}</p>
           </div>
-          <button className="icon-button" onClick={onRefresh} aria-label={translate('aria.refreshResults')}>
-            <RefreshCw size={18} />
-          </button>
+          <div className="detail-actions">
+            <button className="minor-button" onClick={() => void copyPollLink()} aria-label={translate('aria.copyPollLink')}>
+              {copyState === 'copied' ? <Check size={17} /> : <Copy size={17} />}
+              {translate(copyState === 'copied' ? 'status.linkCopied' : 'action.copyLink')}
+            </button>
+            <button className="icon-button" onClick={onRefresh} aria-label={translate('aria.refreshResults')}>
+              <RefreshCw size={18} />
+            </button>
+          </div>
         </header>
 
         {isClosed(poll) && <Notice>{translate('label.frozenResults')}</Notice>}
+        {copyState === 'error' && <Notice tone="error">{translate('error.copyLink')}</Notice>}
         {message && <Notice tone="error">{message}</Notice>}
 
         <div className="detail-grid">

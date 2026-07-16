@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { BrowsePolls, POLL_PAGE_SIZE } from './BrowsePolls';
 import { CreatePoll } from './CreatePoll';
+import { buildPollLink, getInitialPollRoute } from './deepLink';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
 import { createTranslator } from './i18n';
 import { MyPolls } from './MyPolls';
-import { coreRejectionKey, friendlyWriteError, getAccountVoteIndexes, responseData, versionAtLeast } from './pollFormat';
+import { coreRejectionKey, errorText, friendlyWriteError, getAccountVoteIndexes, responseData, versionAtLeast } from './pollFormat';
 import { PollDetail } from './PollDetail';
 import { validateVoteIndexes, validationMessageKey } from './pollValidation';
 import { getBridgeState, qdnRequest } from './qdnRequest';
@@ -17,6 +18,7 @@ import { getPollWriteAvailability } from './writeAvailability';
 type Tab = 'browse' | 'create' | 'mine' | 'reference';
 type Filters = { owner: string; query: string; reverse?: boolean; status: string };
 type Message = { text: string; tone: 'error' | 'info' } | null;
+type DirectLinkState = 'none' | 'loading' | 'invalid' | 'not-found' | 'error';
 
 const emptyBridge: BridgeState = {
   actions: [],
@@ -43,6 +45,7 @@ function sameIndexes(a: number[], b: number[]) {
 }
 
 export function App() {
+  const [initialPollRoute] = useState(getInitialPollRoute);
   const [tab, setTab] = useState<Tab>('browse');
   const [bridge, setBridge] = useState(emptyBridge);
   const [host, setHost] = useState<HostInfo | null>(null);
@@ -61,6 +64,13 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
   const [pendingVote, setPendingVote] = useState<PendingVote | null>(null);
+  const [directLinkState, setDirectLinkState] = useState<DirectLinkState>(
+    initialPollRoute.kind === 'poll'
+      ? 'loading'
+      : initialPollRoute.kind === 'invalid'
+        ? 'invalid'
+        : 'none',
+  );
   const [settings, setSettings] = useState(getInitialDisplaySettings);
   const openRequestRef = useRef(0);
   const selectedRef = useRef<Poll | null>(null);
@@ -166,10 +176,6 @@ export function App() {
     }
   }
 
-  useEffect(() => {
-    void loadContext().then(() => loadPolls(0));
-  }, []);
-
   async function openPoll(poll: Poll) {
     const requestId = openRequestRef.current + 1;
     openRequestRef.current = requestId;
@@ -195,6 +201,35 @@ export function App() {
       }
     }
   }
+
+  async function openPollById(pollId: number) {
+    setDirectLinkState('loading');
+
+    try {
+      const poll = responseData<Poll>(await qdnRequest({
+        action: 'FETCH_NODE_API',
+        path: `/polls/id/${pollId}`,
+        maxBytes: 100_000,
+      }));
+
+      setDirectLinkState('none');
+      await openPoll(poll);
+    } catch (error) {
+      console.error('Failed to load linked poll', error);
+      const detail = errorText(error, '');
+      setDirectLinkState(/POLL_NO_EXISTS|poll does not exist/i.test(detail) ? 'not-found' : 'error');
+    }
+  }
+
+  useEffect(() => {
+    void loadContext().then(() => {
+      void loadPolls(0);
+
+      if (initialPollRoute.kind === 'poll') {
+        void openPollById(initialPollRoute.pollId);
+      }
+    });
+  }, []);
 
   function refresh() {
     void loadContext().then(() => loadPolls(offset));
@@ -395,6 +430,43 @@ export function App() {
     }
   }
 
+  if (directLinkState !== 'none') {
+    const errorKey = directLinkState === 'invalid'
+      ? 'error.invalidPollLink'
+      : directLinkState === 'not-found'
+        ? 'error.pollNotFound'
+        : 'error.loadPoll';
+
+    return (
+      <main className="app-shell">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">{translate('app.eyebrow', { version: __APP_VERSION__ })}</p>
+            <h1>{translate('app.title')}</h1>
+          </div>
+        </header>
+        {directLinkState === 'loading' ? (
+          <div className="empty-state">
+            <Loader2 className="spinner" />
+            {translate('label.loadingPoll')}
+          </div>
+        ) : (
+          <section className="card linked-poll-error">
+            <Notice tone="error">{translate(errorKey)}</Notice>
+            <button
+              onClick={() => {
+                setDirectLinkState('none');
+                setMessage(null);
+              }}
+            >
+              {translate('action.browsePolls')}
+            </button>
+          </section>
+        )}
+      </main>
+    );
+  }
+
   if (selected) {
     return (
       <PollDetail
@@ -408,8 +480,12 @@ export function App() {
         busy={busy}
         message={message?.tone === 'error' ? message.text : ''}
         pendingVote={pendingVote}
+        shareAddress={buildPollLink(selected.pollId)}
         translate={translate}
-        onBack={() => setSelected(null)}
+        onBack={() => {
+          setSelected(null);
+          setMessage(null);
+        }}
         onRefresh={() => void openPoll(selected)}
         onVote={submitVote}
       />

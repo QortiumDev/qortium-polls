@@ -6,6 +6,10 @@ declare global {
   const __APP_VERSION__: string;
 
   interface Window {
+    _qdnIdentifier?: unknown;
+    _qdnName?: unknown;
+    _qdnPath?: unknown;
+    _qdnService?: unknown;
     qdnRequest?: <T = unknown>(request: QdnRequest) => Promise<T>;
   }
 }

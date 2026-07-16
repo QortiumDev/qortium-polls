@@ -9,6 +9,7 @@ import { Notice } from './ui';
 type MyPollsProps = {
   account: string;
   busy: boolean;
+  language: string;
   loading: boolean;
   lockedNote: string;
   onOpen: (poll: Poll) => void;
@@ -22,6 +23,7 @@ type MyPollsProps = {
 export function MyPolls({
   account,
   busy,
+  language,
   loading,
   lockedNote,
   onOpen,
@@ -41,6 +43,7 @@ export function MyPolls({
     return (
       <EditPoll
         poll={editing}
+        language={language}
         supports142={supports142}
         writeAvailable={writeAvailable}
         lockedNote={lockedNote}
@@ -69,7 +72,7 @@ export function MyPolls({
             <article className="poll-row card" key={poll.pollId}>
               <div>
                 <strong>{poll.pollName}</strong>
-                <span>{stateLabel(poll, translate)} · {translate('label.options')} {poll.pollOptions.length}</span>
+                <span>{stateLabel(poll, translate)} · {translate('label.optionCount', { count: poll.pollOptions.length })}</span>
               </div>
               <div className="inline-actions">
                 <button className="minor-button" onClick={() => onOpen(poll)}>{translate('action.view')}</button>

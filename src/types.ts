@@ -58,6 +58,16 @@ export type Poll = {
   endTime?: number | null;
 };
 
+export type PendingVotePhase = 'signing' | 'pending' | 'confirmed' | 'failed' | 'timeout';
+
+export type PendingVote = {
+  pollId: number;
+  indexes: number[];
+  signature?: string;
+  phase: PendingVotePhase;
+  submittedAt: number;
+};
+
 export type PollVotes = {
   totalVotes?: number;
   totalVoters?: number;

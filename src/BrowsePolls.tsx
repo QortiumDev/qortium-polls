@@ -1,7 +1,7 @@
 // Demonstrates Core's public poll-search endpoint and its paging/filter contract.
 import type { FormEvent } from 'react';
 import { Loader2 } from 'lucide-react';
-import { dateText, stateLabel } from './pollFormat';
+import { dateText, stateKey, stateLabel } from './pollFormat';
 import type { TranslateFunction } from './i18n';
 import type { Poll } from './types';
 
@@ -88,22 +88,18 @@ export function BrowsePolls({
         </div>
       ) : (
         <div className="poll-list">
-          {polls.map((poll) => {
-            const pollState = stateLabel(poll, translate);
-
-            return (
-              <button className="poll-row card" key={poll.pollId} onClick={() => onOpen(poll)}>
-                <div>
-                  <strong>{poll.pollName}</strong>
-                  <span>{translate('label.options')} {poll.pollOptions.length} · {poll.owner}</span>
-                </div>
-                <div className="row-meta">
-                  <span className={`pill pill--${pollState.toLowerCase()}`}>{pollState}</span>
-                  <small>{dateText(poll.endTime, language, translate('label.noEndTime'))}</small>
-                </div>
-              </button>
-            );
-          })}
+          {polls.map((poll) => (
+            <button className="poll-row card" key={poll.pollId} onClick={() => onOpen(poll)}>
+              <div>
+                <strong>{poll.pollName}</strong>
+                <span>{translate('label.optionCount', { count: poll.pollOptions.length })} · {poll.owner}</span>
+              </div>
+              <div className="row-meta">
+                <span className={`pill pill--${stateKey(poll)}`}>{stateLabel(poll, translate)}</span>
+                <small>{dateText(poll.endTime, language, translate('label.noEndTime'))}</small>
+              </div>
+            </button>
+          ))}
           {!polls.length && <div className="empty-state">{translate('empty.polls')}</div>}
         </div>
       )}
@@ -112,7 +108,7 @@ export function BrowsePolls({
         <button disabled={!offset} onClick={() => onPage(offset - POLL_PAGE_SIZE)}>
           {translate('action.previous')}
         </button>
-        <span>{translate('time.offset', { offset })}</span>
+        <span>{translate('label.page', { page: Math.floor(offset / POLL_PAGE_SIZE) + 1 })}</span>
         <button disabled={polls.length < POLL_PAGE_SIZE} onClick={() => onPage(offset + POLL_PAGE_SIZE)}>
           {translate('action.next')}
         </button>

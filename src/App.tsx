@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { BrowsePolls, POLL_PAGE_SIZE } from './BrowsePolls';
 import { CreatePoll } from './CreatePoll';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
 import { createTranslator } from './i18n';
 import { MyPolls } from './MyPolls';
-import { errorText, friendlyWriteError, getAccountVoteIndexes, responseData, versionAtLeast } from './pollFormat';
+import { coreRejectionKey, friendlyWriteError, getAccountVoteIndexes, responseData, versionAtLeast } from './pollFormat';
 import { PollDetail } from './PollDetail';
-import { validateVoteIndexes } from './pollValidation';
+import { validateVoteIndexes, validationMessageKey } from './pollValidation';
 import { getBridgeState, qdnRequest } from './qdnRequest';
 import { Reference } from './Reference';
-import type { BridgeState, HostInfo, Poll, PollVotes } from './types';
+import type { BridgeState, HostInfo, PendingVote, Poll, PollVotes } from './types';
 import { Notice } from './ui';
 import { getPollWriteAvailability } from './writeAvailability';
 
 type Tab = 'browse' | 'create' | 'mine' | 'reference';
 type Filters = { owner: string; query: string; reverse?: boolean; status: string };
+type Message = { text: string; tone: 'error' | 'info' } | null;
 
 const emptyBridge: BridgeState = {
   actions: [],
@@ -23,6 +24,23 @@ const emptyBridge: BridgeState = {
   isUsingPublicNode: false,
   ui: 'BROWSER_DEV',
 };
+
+const VOTE_WATCH_FAST_MS = 3_000;
+const VOTE_WATCH_SLOW_MS = 10_000;
+const VOTE_WATCH_FAST_WINDOW_MS = 30_000;
+const VOTE_WATCH_TIMEOUT_MS = 600_000;
+const VOTE_CONFIRMED_LINGER_MS = 6_000;
+
+function sortedIndexes(values: number[]) {
+  return [...values].sort((a, b) => a - b);
+}
+
+function sameIndexes(a: number[], b: number[]) {
+  const left = sortedIndexes(a);
+  const right = sortedIndexes(b);
+
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
 
 export function App() {
   const [tab, setTab] = useState<Tab>('browse');
@@ -41,8 +59,11 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [loadingMine, setLoadingMine] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<Message>(null);
+  const [pendingVote, setPendingVote] = useState<PendingVote | null>(null);
   const [settings, setSettings] = useState(getInitialDisplaySettings);
+  const openRequestRef = useRef(0);
+  const selectedRef = useRef<Poll | null>(null);
   const translate = useMemo(() => createTranslator(settings.language), [settings.language]);
   const supports142 = versionAtLeast(host?.hostVersion);
   const writeState = getPollWriteAvailability(bridge.actions, !!bridge.isUsingPublicNode);
@@ -55,6 +76,8 @@ export function App() {
   const publicWriteNote = writeState.publicSigning
     ? translate('node.publicSigning')
     : '';
+
+  selectedRef.current = selected;
 
   useEffect(() => {
     applyDisplaySettings(settings);
@@ -92,7 +115,8 @@ export function App() {
         setAccount('');
       }
     } catch (error) {
-      setMessage(errorText(error, translate('error.default')));
+      console.error('Failed to load bridge context', error);
+      setMessage({ text: translate('error.default'), tone: 'error' });
     }
   }
 
@@ -105,7 +129,7 @@ export function App() {
     const setDestinationLoading = destination === 'mine' ? setLoadingMine : setLoading;
 
     setDestinationLoading(true);
-    setMessage('');
+    setMessage(null);
 
     try {
       const params = new URLSearchParams({
@@ -134,8 +158,9 @@ export function App() {
         setOffset(nextOffset);
       }
     } catch (error) {
+      console.error('Failed to load polls', error);
       setDestinationPolls([]);
-      setMessage(errorText(error, translate('error.loadPolls')));
+      setMessage({ text: translate('error.loadPolls'), tone: 'error' });
     } finally {
       setDestinationLoading(false);
     }
@@ -146,6 +171,8 @@ export function App() {
   }, []);
 
   async function openPoll(poll: Poll) {
+    const requestId = openRequestRef.current + 1;
+    openRequestRef.current = requestId;
     setSelected(poll);
     setVotes(null);
     setTab('browse');
@@ -156,9 +183,16 @@ export function App() {
         path: `/polls/votes/id/${poll.pollId}?onlyCounts=false`,
         maxBytes: 2_000_000,
       }));
-      setVotes(result);
+
+      if (openRequestRef.current === requestId && selectedRef.current?.pollId === poll.pollId) {
+        setVotes(result);
+      }
     } catch (error) {
-      setMessage(errorText(error, translate('error.loadResults')));
+      console.error('Failed to load poll results', error);
+
+      if (openRequestRef.current === requestId) {
+        setMessage({ text: translate('error.loadResults'), tone: 'error' });
+      }
     }
   }
 
@@ -171,47 +205,165 @@ export function App() {
   }
 
   async function submitVote(indexes: number[]) {
-    if (!selected) {
+    if (!selected || (pendingVote && (pendingVote.phase === 'signing' || pendingVote.phase === 'pending'))) {
       return;
     }
 
     setBusy(true);
-    setMessage('');
+    setMessage(null);
+
+    const validation = validateVoteIndexes({
+      optionCount: selected.pollOptions.length,
+      optionIndexes: supports142 ? indexes : undefined,
+      optionIndex: supports142 ? undefined : indexes[0] ?? 0,
+      previousIndexes: getAccountVoteIndexes(votes, account),
+    });
+
+    if (!validation.ok) {
+      setMessage({ text: translate(validationMessageKey(validation.code)), tone: 'error' });
+      setBusy(false);
+      return;
+    }
+
+    setPendingVote({
+      pollId: selected.pollId,
+      indexes,
+      phase: 'signing',
+      submittedAt: Date.now(),
+    });
 
     try {
-      const validation = validateVoteIndexes({
-        optionCount: selected.pollOptions.length,
-        optionIndexes: supports142 ? indexes : undefined,
-        optionIndex: supports142 ? undefined : indexes[0] ?? 0,
-        previousIndexes: getAccountVoteIndexes(votes, account),
-      });
-
-      if (!validation.ok) {
-        throw new Error(validation.code);
-      }
-
-      await qdnRequest({
+      const result = await qdnRequest<{ transactionSignature?: string } | undefined>({
         action: 'VOTE_ON_POLL',
         pollId: selected.pollId,
         ...(supports142 ? { optionIndexes: indexes } : { optionIndex: indexes[0] ?? 0 }),
       });
-      setMessage(translate('status.submittedVote'));
+      setPendingVote((current) => current && {
+        ...current,
+        phase: 'pending',
+        signature: typeof result?.transactionSignature === 'string' ? result.transactionSignature : undefined,
+        submittedAt: Date.now(),
+      });
     } catch (error) {
-      setMessage(friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')));
+      setPendingVote(null);
+      const rejectionKey = coreRejectionKey(error);
+      setMessage({
+        text: rejectionKey
+          ? translate(rejectionKey)
+          : friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')),
+        tone: 'error',
+      });
     } finally {
       setBusy(false);
     }
   }
 
+  // Watches the submitted vote until the network records it, then refreshes
+  // the open poll automatically.
+  useEffect(() => {
+    if (!pendingVote || pendingVote.phase !== 'pending') {
+      return;
+    }
+
+    let disposed = false;
+    let timer = 0;
+    const watched = pendingVote;
+
+    function confirm() {
+      if (disposed) {
+        return;
+      }
+
+      setPendingVote((current) => current && current.submittedAt === watched.submittedAt
+        ? { ...current, phase: 'confirmed' }
+        : current);
+
+      if (selectedRef.current?.pollId === watched.pollId) {
+        void openPoll(selectedRef.current);
+      }
+
+      window.setTimeout(() => {
+        setPendingVote((current) => current && current.submittedAt === watched.submittedAt ? null : current);
+      }, VOTE_CONFIRMED_LINGER_MS);
+    }
+
+    async function check() {
+      if (disposed) {
+        return;
+      }
+
+      try {
+        if (watched.signature) {
+          const transaction = responseData<{ blockHeight?: number }>(await qdnRequest({
+            action: 'FETCH_NODE_API',
+            path: `/transactions/signature/${encodeURIComponent(watched.signature)}`,
+            maxBytes: 100_000,
+          }));
+
+          if (typeof transaction?.blockHeight === 'number' && transaction.blockHeight > 0) {
+            confirm();
+            return;
+          }
+        } else {
+          // Older hosts do not return the transaction signature; watch the
+          // stored votes for this account instead.
+          const result = responseData<PollVotes>(await qdnRequest({
+            action: 'FETCH_NODE_API',
+            path: `/polls/votes/id/${watched.pollId}?onlyCounts=false`,
+            maxBytes: 2_000_000,
+          }));
+          const stored = getAccountVoteIndexes(result, account);
+          const recorded = watched.indexes.length === 0 ? stored.length === 0 : sameIndexes(stored, watched.indexes);
+
+          if (recorded) {
+            confirm();
+            return;
+          }
+        }
+      } catch {
+        // Not found yet or a transient network error — keep polling.
+      }
+
+      if (disposed) {
+        return;
+      }
+
+      if (Date.now() - watched.submittedAt > VOTE_WATCH_TIMEOUT_MS) {
+        setPendingVote((current) => current && current.submittedAt === watched.submittedAt
+          ? { ...current, phase: 'timeout' }
+          : current);
+        return;
+      }
+
+      const interval = Date.now() - watched.submittedAt < VOTE_WATCH_FAST_WINDOW_MS
+        ? VOTE_WATCH_FAST_MS
+        : VOTE_WATCH_SLOW_MS;
+      timer = window.setTimeout(() => void check(), interval);
+    }
+
+    timer = window.setTimeout(() => void check(), VOTE_WATCH_FAST_MS);
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [pendingVote?.phase, pendingVote?.signature]);
+
   async function submitCreate(request: Record<string, unknown>) {
     setBusy(true);
-    setMessage('');
+    setMessage(null);
 
     try {
       await qdnRequest({ action: 'CREATE_POLL', ...request });
-      setMessage(translate('status.submittedCreate'));
+      setMessage({ text: translate('status.submittedCreate'), tone: 'info' });
     } catch (error) {
-      setMessage(friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')));
+      const rejectionKey = coreRejectionKey(error);
+      setMessage({
+        text: rejectionKey
+          ? translate(rejectionKey)
+          : friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')),
+        tone: 'error',
+      });
     } finally {
       setBusy(false);
     }
@@ -219,13 +371,19 @@ export function App() {
 
   async function submitUpdate(request: Record<string, unknown>) {
     setBusy(true);
-    setMessage('');
+    setMessage(null);
 
     try {
       await qdnRequest({ action: 'UPDATE_POLL', ...request });
-      setMessage(translate('status.submittedUpdate'));
+      setMessage({ text: translate('status.submittedUpdate'), tone: 'info' });
     } catch (error) {
-      setMessage(friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')));
+      const rejectionKey = coreRejectionKey(error);
+      setMessage({
+        text: rejectionKey
+          ? translate(rejectionKey)
+          : friendlyWriteError(error, lockedNote || translate('node.publicReadOnly')),
+        tone: 'error',
+      });
     } finally {
       setBusy(false);
     }
@@ -242,7 +400,8 @@ export function App() {
         writeAvailable={writeAvailable}
         lockedNote={lockedNote}
         busy={busy}
-        message={message}
+        message={message?.tone === 'error' ? message.text : ''}
+        pendingVote={pendingVote}
         translate={translate}
         onBack={() => setSelected(null)}
         onRefresh={() => void openPoll(selected)}
@@ -289,7 +448,7 @@ export function App() {
       </nav>
       {lockedNote && <Notice tone="warning">{lockedNote}</Notice>}
       {publicWriteNote && <Notice>{publicWriteNote}</Notice>}
-      {message && <Notice tone="error">{message}</Notice>}
+      {message && <Notice tone={message.tone}>{message.text}</Notice>}
       {tab === 'browse' && (
         <BrowsePolls
           polls={polls}
@@ -328,6 +487,7 @@ export function App() {
           account={account}
           polls={myPolls}
           loading={loadingMine}
+          language={settings.language}
           supports142={supports142}
           writeAvailable={writeAvailable}
           lockedNote={lockedNote}

@@ -1,22 +1,24 @@
-// Demonstrates UPDATE_POLL's owner-only full replacement and post-vote end-time extension rule.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import {
+  dateText,
   fromDateInput,
   isClosed,
   isUnchangedDateInput,
+  minDateInput,
   preservedDateInputValue,
   responseData,
   toDateInput,
 } from './pollFormat';
-import { validatePollFields } from './pollValidation';
+import { pollFieldErrors, POLL_LIMITS, validatePollFields } from './pollValidation';
 import { qdnRequest } from './qdnRequest';
 import type { TranslateFunction } from './i18n';
 import type { Poll, PollVotes } from './types';
-import { Notice } from './ui';
+import { ByteHelp, FieldMessage, Notice } from './ui';
 
 type EditPollProps = {
   busy: boolean;
+  language: string;
   lockedNote: string;
   onCancel: () => void;
   onSubmit: (request: Record<string, unknown>) => void;
@@ -28,6 +30,7 @@ type EditPollProps = {
 
 export function EditPoll({
   busy,
+  language,
   lockedNote,
   onCancel,
   onSubmit,
@@ -42,6 +45,8 @@ export function EditPoll({
   const [start, setStart] = useState(toDateInput(poll.startTime));
   const [end, setEnd] = useState(toDateInput(poll.endTime));
   const [hasVotes, setHasVotes] = useState<boolean | null>(null);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [attempted, setAttempted] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -67,21 +72,35 @@ export function EditPoll({
   }, [poll.pollId]);
 
   const startUnchanged = isUnchangedDateInput(start, poll.startTime);
-  const validation = validatePollFields({
+  const fieldInput = {
     name,
     description,
     options,
     startTime: startUnchanged ? undefined : fromDateInput(start),
     endTime: fromDateInput(end),
     now: Date.now(),
-  });
+  };
+  const validation = validatePollFields(fieldInput);
+  const errors = pollFieldErrors(fieldInput);
   const extensionOnly = hasVotes === true && (!poll.endTime || !fromDateInput(end) || fromDateInput(end)! <= poll.endTime);
   const oldHostScheduled = !!poll.startTime && !supports142;
+  const locked = hasVotes === true;
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  function touch(field: string) {
+    setTouched((current) => ({ ...current, [field]: true }));
+  }
+
+  function shows(field: string) {
+    return attempted || !!touched[field];
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!validation.ok || extensionOnly || oldHostScheduled) {
+    const fresh = validatePollFields({ ...fieldInput, now: Date.now() });
+
+    if (!fresh.ok || extensionOnly || oldHostScheduled) {
+      setAttempted(true);
       return;
     }
 
@@ -106,38 +125,80 @@ export function EditPoll({
       {lockedNote && <Notice tone="warning">{lockedNote}</Notice>}
       {hasVotes === null && <Notice>{translate('label.checkingVotes')}</Notice>}
       {oldHostScheduled && <Notice tone="warning">{translate('node.oldHostScheduled')}</Notice>}
-      <form className="card form-card" onSubmit={submit}>
+      <form className="card form-card" onSubmit={submit} noValidate>
         <label>
           {translate('field.name')}
-          <input disabled={hasVotes === true} value={name} onChange={(event) => setName(event.target.value)} />
+          <input
+            disabled={locked}
+            value={name}
+            maxLength={POLL_LIMITS.maxNameBytes}
+            aria-invalid={shows('name') && !!errors.name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => touch('name')}
+          />
+          {!locked && <ByteHelp value={name} max={POLL_LIMITS.maxNameBytes} translate={translate} />}
+          <FieldMessage error={shows('name') && errors.name} translate={translate} />
         </label>
         <label>
           {translate('field.description')}
-          <textarea disabled={hasVotes === true} value={description} onChange={(event) => setDescription(event.target.value)} />
+          <textarea
+            disabled={locked}
+            value={description}
+            maxLength={POLL_LIMITS.maxDescriptionBytes}
+            aria-invalid={shows('description') && !!errors.description}
+            onChange={(event) => setDescription(event.target.value)}
+            onBlur={() => touch('description')}
+          />
+          {!locked && <ByteHelp value={description} max={POLL_LIMITS.maxDescriptionBytes} translate={translate} />}
+          <FieldMessage error={shows('description') && errors.description} translate={translate} />
         </label>
         {options.map((option, index) => (
           <label key={index}>
             {translate('label.option', { number: index + 1 })}
             <input
-              disabled={hasVotes === true}
+              disabled={locked}
               value={option}
+              maxLength={POLL_LIMITS.maxOptionBytes}
+              aria-invalid={shows(`option-${index}`) && !!errors.options[index]}
               onChange={(event) => setOptions((current) => current.map((old, currentIndex) => currentIndex === index ? event.target.value : old))}
+              onBlur={() => touch(`option-${index}`)}
             />
+            <FieldMessage error={shows(`option-${index}`) && errors.options[index]} translate={translate} />
           </label>
         ))}
         {supports142 && (
           <label>
             {translate('field.startTime')}
-            <input disabled={hasVotes === true} type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+            <input
+              disabled={locked}
+              type="datetime-local"
+              value={start}
+              aria-invalid={shows('start') && !!errors.start}
+              onChange={(event) => setStart(event.target.value)}
+              onBlur={() => touch('start')}
+            />
+            <FieldMessage error={shows('start') && errors.start} translate={translate} />
           </label>
         )}
         <label>
           {translate('field.endTime')}
-          <input type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
+          <input
+            type="datetime-local"
+            value={end}
+            min={locked ? minDateInput(Math.max(Date.now(), poll.endTime ?? 0)) : minDateInput()}
+            aria-invalid={shows('end') && !!(errors.end || (extensionOnly && hasVotes === true))}
+            onChange={(event) => setEnd(event.target.value)}
+            onBlur={() => touch('end')}
+          />
+          <FieldMessage error={shows('end') && errors.end} translate={translate} />
+          {extensionOnly && (
+            <small className="field-error" role="alert">
+              {translate('edit.endExtendOnly', { time: dateText(poll.endTime, language, translate('label.noEndTime')) })}
+            </small>
+          )}
         </label>
-        {extensionOnly && <Notice tone="error">{translate('poll.votedEndRule')}</Notice>}
-        {!validation.ok && <Notice tone="error">{validation.code}</Notice>}
-        <button disabled={!writeAvailable || busy || hasVotes === null || !validation.ok || extensionOnly || oldHostScheduled || isClosed(poll)} type="submit">
+        {attempted && !validation.ok && <Notice tone="error">{translate('error.form.fixFields')}</Notice>}
+        <button disabled={!writeAvailable || busy || hasVotes === null || extensionOnly || oldHostScheduled || isClosed(poll)} type="submit">
           {translate('action.save')}
         </button>
       </form>

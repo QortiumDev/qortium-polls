@@ -1,4 +1,5 @@
 import type { TranslateFunction } from './i18n';
+import type { MessageKey } from './locales/en';
 import type { Poll, PollVotes } from './types';
 
 export function errorText(error: unknown, fallback: string) {
@@ -11,6 +12,27 @@ export function friendlyWriteError(error: unknown, fallback: string) {
   return message.includes('PUBLIC_NODE_READ_ONLY') || /public.*(read.?only|network node)|trusted custom node/i.test(message)
     ? fallback
     : message;
+}
+
+const CORE_REJECTION_KEYS: [string, MessageKey][] = [
+  ['ALREADY_VOTED_FOR_THAT_OPTION', 'error.validation.repeatVote'],
+  ['DUPLICATE_OPTION', 'error.validation.duplicateOption'],
+  ['INVALID_DESCRIPTION_LENGTH', 'error.validation.invalidDescriptionLength'],
+  ['INVALID_LIFETIME', 'error.validation.invalidLifetime'],
+  ['INVALID_NAME_LENGTH', 'error.validation.invalidNameLength'],
+  ['INVALID_OPTION_LENGTH', 'error.validation.invalidOptionLength'],
+  ['INVALID_OPTIONS_COUNT', 'error.validation.invalidOptionsCount'],
+  ['NAME_NOT_NORMALIZED', 'error.validation.nameNotNormalized'],
+  ['POLL_OPTION_DOES_NOT_EXIST', 'error.validation.optionDoesNotExist'],
+  ['POLL_CLOSED', 'vote.closed'],
+];
+
+/** Finds the plain-language locale key for a Core rejection code inside an error message, if any. */
+export function coreRejectionKey(error: unknown): MessageKey | null {
+  const message = errorText(error, '');
+  const match = CORE_REJECTION_KEYS.find(([code]) => message.includes(code));
+
+  return match ? match[1] : null;
 }
 
 export function dateText(value: number | null | undefined, language: string, noEndTime: string) {
@@ -62,6 +84,15 @@ export function isClosed(poll: Poll, now = Date.now()) {
   return !!poll.endTime && poll.endTime <= now;
 }
 
+/** Stable state slug for CSS classes; never derive class names from translated labels. */
+export function stateKey(poll: Poll, now = Date.now()): 'closed' | 'open' | 'scheduled' {
+  if (isClosed(poll, now)) {
+    return 'closed';
+  }
+
+  return isScheduled(poll, now) ? 'scheduled' : 'open';
+}
+
 export function stateLabel(poll: Poll, translate: TranslateFunction) {
   if (isClosed(poll)) {
     return translate('status.closed');
@@ -72,6 +103,11 @@ export function stateLabel(poll: Poll, translate: TranslateFunction) {
   }
 
   return translate('status.open');
+}
+
+/** Smallest value for a datetime-local `min` attribute that is still in the future. */
+export function minDateInput(afterMs = Date.now()) {
+  return toDateInput(afterMs + 60_000);
 }
 
 export function responseData<T>(value: unknown): T {

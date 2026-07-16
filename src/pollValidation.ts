@@ -1,3 +1,5 @@
+import type { MessageKey } from './locales/en';
+
 /** Client-side mirror of qortium-core poll validation. Core remains authoritative. */
 export const POLL_LIMITS = {
   minNameBytes: 3,
@@ -147,4 +149,86 @@ export function validateVoteIndexes(input: {
   }
 
   return valid;
+}
+
+/** Maps a validation code to its plain-language locale key. */
+export function validationMessageKey(code: PollValidationCode): MessageKey {
+  const keys: Record<PollValidationCode, MessageKey> = {
+    DUPLICATE_OPTION: 'error.validation.duplicateOption',
+    INVALID_DESCRIPTION_LENGTH: 'error.validation.invalidDescriptionLength',
+    INVALID_LIFETIME: 'error.validation.invalidLifetime',
+    INVALID_NAME_LENGTH: 'error.validation.invalidNameLength',
+    INVALID_OPTION_LENGTH: 'error.validation.invalidOptionLength',
+    INVALID_OPTIONS_COUNT: 'error.validation.invalidOptionsCount',
+    NAME_NOT_NORMALIZED: 'error.validation.nameNotNormalized',
+    POLL_OPTION_DOES_NOT_EXIST: 'error.validation.optionDoesNotExist',
+    ALREADY_VOTED_FOR_THAT_OPTION: 'error.validation.repeatVote',
+  };
+
+  return keys[code];
+}
+
+export type FieldError = { key: MessageKey; params?: Record<string, string | number> };
+
+export type PollFieldErrors = {
+  name?: FieldError;
+  description?: FieldError;
+  options: (FieldError | undefined)[];
+  start?: FieldError;
+  end?: FieldError;
+};
+
+/** Per-field mirror of validatePollFields, for inline feedback while typing. */
+export function pollFieldErrors(input: {
+  name: string;
+  description?: string;
+  options: string[];
+  startTime?: number | null;
+  endTime?: number | null;
+  now: number;
+}): PollFieldErrors {
+  const errors: PollFieldErrors = { options: input.options.map(() => undefined) };
+  const nameBytes = utf8Bytes(input.name);
+
+  if (nameBytes < POLL_LIMITS.minNameBytes) {
+    errors.name = { key: 'error.field.nameTooShort' };
+  } else if (nameBytes > POLL_LIMITS.maxNameBytes) {
+    errors.name = { key: 'error.field.nameTooLong', params: { count: nameBytes, max: POLL_LIMITS.maxNameBytes } };
+  } else if (input.name !== normalized(input.name)) {
+    errors.name = { key: 'error.field.nameNotNormalized' };
+  }
+
+  const descriptionBytes = utf8Bytes(input.description ?? '');
+
+  if (descriptionBytes > POLL_LIMITS.maxDescriptionBytes) {
+    errors.description = {
+      key: 'error.field.descriptionTooLong',
+      params: { count: descriptionBytes, max: POLL_LIMITS.maxDescriptionBytes },
+    };
+  }
+
+  input.options.forEach((option, index) => {
+    const bytes = utf8Bytes(option);
+    const firstIndex = input.options.indexOf(option);
+
+    if (bytes < POLL_LIMITS.minOptionBytes) {
+      errors.options[index] = { key: 'error.field.optionEmpty' };
+    } else if (bytes > POLL_LIMITS.maxOptionBytes) {
+      errors.options[index] = { key: 'error.field.optionTooLong', params: { count: bytes, max: POLL_LIMITS.maxOptionBytes } };
+    } else if (firstIndex !== index) {
+      errors.options[index] = { key: 'error.field.optionDuplicate', params: { other: firstIndex + 1 } };
+    }
+  });
+
+  if (input.startTime != null && input.startTime <= input.now) {
+    errors.start = { key: 'error.field.startInPast' };
+  } else if (input.startTime != null && input.endTime != null && input.startTime >= input.endTime) {
+    errors.start = { key: 'error.field.startAfterEnd' };
+  }
+
+  if (input.endTime != null && input.endTime <= input.now) {
+    errors.end = { key: 'error.field.endInPast' };
+  }
+
+  return errors;
 }

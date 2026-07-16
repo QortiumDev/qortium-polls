@@ -79,6 +79,11 @@ export function Reference({ supports142 }: { supports142: boolean }) {
                     <ul>
                       <li>pollId is stable and numeric; the vote is mutable per account</li>
                       <li>indexes are 1-based; 0, [0], and [] remove the vote</li>
+                      <li>
+                        send <code>optionIndexes</code> sorted ascending — Core re-serializes stored votes in
+                        ascending order, so an unsorted multi-option submission breaks its own signature and
+                        never confirms
+                      </li>
                     </ul>
                   </td>
                 </tr>

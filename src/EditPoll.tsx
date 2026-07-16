@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Plus } from 'lucide-react';
 import {
   dateText,
   fromDateInput,
@@ -152,20 +152,47 @@ export function EditPoll({
           {!locked && <ByteHelp value={description} max={POLL_LIMITS.maxDescriptionBytes} translate={translate} />}
           <FieldMessage error={shows('description') && errors.description} translate={translate} />
         </label>
-        {options.map((option, index) => (
-          <label key={index}>
-            {translate('label.option', { number: index + 1 })}
-            <input
-              disabled={locked}
-              value={option}
-              maxLength={POLL_LIMITS.maxOptionBytes}
-              aria-invalid={shows(`option-${index}`) && !!errors.options[index]}
-              onChange={(event) => setOptions((current) => current.map((old, currentIndex) => currentIndex === index ? event.target.value : old))}
-              onBlur={() => touch(`option-${index}`)}
-            />
-            <FieldMessage error={shows(`option-${index}`) && errors.options[index]} translate={translate} />
-          </label>
-        ))}
+        <div>
+          <div className="section-heading">
+            <h3>{translate('label.options')}</h3>
+            {!locked && (
+              <button
+                type="button"
+                className="minor-button"
+                disabled={options.length >= POLL_LIMITS.maxOptions}
+                onClick={() => setOptions((current) => [...current, ''])}
+              >
+                <Plus size={16} />
+                {translate('action.addOption')}
+              </button>
+            )}
+          </div>
+          {!locked && <small className="field-help">{translate('hint.optionLimit')}</small>}
+          {options.map((option, index) => (
+            <div className="option-input" key={index}>
+              <input
+                disabled={locked}
+                value={option}
+                maxLength={POLL_LIMITS.maxOptionBytes}
+                aria-invalid={shows(`option-${index}`) && !!errors.options[index]}
+                aria-label={translate('label.option', { number: index + 1 })}
+                onChange={(event) => setOptions((current) => current.map((old, currentIndex) => currentIndex === index ? event.target.value : old))}
+                onBlur={() => touch(`option-${index}`)}
+              />
+              {!locked && (
+                <button
+                  type="button"
+                  className="minor-button"
+                  disabled={options.length <= POLL_LIMITS.minOptions}
+                  onClick={() => setOptions((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                >
+                  {translate('action.remove')}
+                </button>
+              )}
+              <FieldMessage error={shows(`option-${index}`) && errors.options[index]} translate={translate} />
+            </div>
+          ))}
+        </div>
         {supports142 && (
           <label>
             {translate('field.startTime')}

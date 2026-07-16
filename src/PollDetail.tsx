@@ -1,6 +1,6 @@
 // Poll results and voting, with an optimistic pending-vote preview while the
 // network records the vote.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle2, Loader2, RefreshCw, Vote } from 'lucide-react';
 import { dateText, isClosed, isScheduled, stateKey, stateLabel } from './pollFormat';
 import type { TranslateFunction, MessageKey } from './i18n';
@@ -49,8 +49,16 @@ export function PollDetail({
   writeAvailable,
 }: PollDetailProps) {
   const [chosen, setChosen] = useState<number[]>([]);
+  const [touchedChoices, setTouchedChoices] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const mine = votes?.voteDetails?.find((vote) => vote.voterAddress === account)?.optionIndexes ?? [];
+
+  // Start from the stored vote so changing it only takes the extra clicks.
+  useEffect(() => {
+    if (!touchedChoices) {
+      setChosen([...mine].sort((a, b) => a - b));
+    }
+  }, [votes, account]);
   const pendingForThis = pendingVote && pendingVote.pollId === poll.pollId ? pendingVote : null;
   const pendingActive = !!pendingForThis && (pendingForThis.phase === 'signing' || pendingForThis.phase === 'pending');
   // One vote can be in flight at a time, on any poll, so the watcher is never replaced.
@@ -93,6 +101,7 @@ export function PollDetail({
     && sortedChosen.every((value, index) => value === sortedMine[index]);
 
   function toggleChoice(index: number) {
+    setTouchedChoices(true);
     setChosen((current) => {
       if (!supports142) {
         return [index];
@@ -186,7 +195,7 @@ export function PollDetail({
                 selection: shownSelection.length ? selectionNames : translate('label.selectionNone'),
               })}
             </p>
-            {sameAsStored && <small className="field-error" role="alert">{translate('vote.sameAsStored')}</small>}
+            {sameAsStored && touchedChoices && <small className="field-error" role="alert">{translate('vote.sameAsStored')}</small>}
             <button
               disabled={unavailable || busy || voteLocked || !chosen.length || sameAsStored}
               onClick={() => onVote(chosen)}

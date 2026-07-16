@@ -6,7 +6,7 @@ export function ByteHelp({ value, max, translate }: { value: string; max: number
   const count = utf8Bytes(value);
   const tone = count > max ? ' field-help--over' : count >= max * 0.9 ? ' field-help--warn' : '';
 
-  return <small className={`field-help${tone}`}>{translate('label.charCount', { count, max })}</small>;
+  return <small className={`field-help${tone}`} title={translate('hint.bytes')}>{translate('label.byteCount', { count, max })}</small>;
 }
 
 export function FieldHint({ children }: { children: ReactNode }) {

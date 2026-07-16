@@ -298,7 +298,8 @@ h3 { font-size: calc(16px * var(--qp-text-scale)); }
 .subtitle,
 .muted,
 .field-help { color: var(--qp-muted); }
-.eyebrow { font-size: var(--qp-text-small); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.eyebrow { color: var(--qp-accent); font-size: var(--qp-text-small); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.eyebrow .pill { letter-spacing: normal; text-transform: none; }
 .subtitle { margin-block-start: 0.35em; max-width: 48rem; }
 
 .field-help { font-size: var(--qp-text-small); }
@@ -367,7 +368,12 @@ label { display: grid; gap: 0.36em; font-weight: 650; }
   width: 100%;
 }
 button.poll-row { background: var(--qp-surface); }
-button.poll-row:hover:not(:disabled) { background: var(--qp-surface); box-shadow: var(--qp-shadow-hover); transform: translateY(-1px); }
+button.poll-row:hover:not(:disabled) {
+  background: var(--qp-surface);
+  border-color: var(--qp-accent);
+  box-shadow: var(--qp-shadow-hover), 0 0 0 2px var(--qp-accent-ring);
+  transform: translateY(-1px);
+}
 .poll-row > div:first-child { display: grid; gap: 0.25em; min-width: 0; }
 .poll-row span { color: var(--qp-text-secondary); font-size: var(--qp-text-small); overflow-wrap: anywhere; }
 .row-meta { align-self: center; flex-wrap: wrap; font-size: var(--qp-text-small); }
@@ -399,7 +405,7 @@ button.poll-row:hover:not(:disabled) { background: var(--qp-surface); box-shadow
   text-align: center;
 }
 
-.spinner { animation: qp-spin 900ms linear infinite; }
+.spinner { animation: qp-spin 900ms linear infinite; color: var(--qp-accent); }
 @keyframes qp-spin { to { transform: rotate(360deg); } }
 
 .pending-status {
@@ -431,8 +437,10 @@ button.poll-row:hover:not(:disabled) { background: var(--qp-surface); box-shadow
   background-image: repeating-linear-gradient(45deg, transparent 0 6px, rgb(255 255 255 / 35%) 6px 12px);
   opacity: 0.6;
 }
-fieldset { border: 0; display: grid; gap: 8px; margin: 0; padding: 0; }
-.choice { align-items: center; display: flex; font-weight: 500; }
+fieldset { border: 0; display: grid; gap: 6px; margin: 0; padding: 0; }
+.choice { align-items: center; border-radius: var(--qp-radius); display: flex; font-weight: 500; gap: 0.5em; padding: 0.3em 0.45em; }
+.choice:hover { background: var(--qp-control); }
+.choice:has(input:checked) { background: var(--qp-accent-soft); color: var(--qp-text-primary); }
 .choice input { accent-color: var(--qp-accent); min-height: auto; width: auto; }
 
 .table-wrap { overflow-x: auto; }
@@ -503,6 +511,11 @@ td { overflow-wrap: anywhere; }
 :root[data-ui='modern'] .card { box-shadow: none; }
 :root[data-ui='modern'] button { border-color: transparent; border-radius: 50px; transition: background-color 170ms ease, box-shadow 170ms ease, transform 170ms ease; }
 :root[data-ui='modern'] button.poll-row { border: 1.5px solid var(--qp-border); border-radius: 8px; }
+:root[data-ui='modern'] button.poll-row:hover:not(:disabled) {
+  border-color: var(--qp-border);
+  box-shadow: 0 0 0 1.5px var(--qp-accent-ring);
+  transform: none;
+}
 
 @media (min-width: 900px) {
   :root[data-ui='modern'] .app-shell { padding-inline: 32px; }
@@ -557,6 +570,25 @@ td { overflow-wrap: anywhere; }
 :root[data-ui='fun'] button:active:not(:disabled) { box-shadow: 1px 1px 0 var(--fun-ink); transform: translate(2px, 2px) scale(0.98); }
 :root[data-ui='fun'] button:disabled { box-shadow: none; }
 
+:root[data-ui='fun'] button.poll-row:hover:not(:disabled) {
+  box-shadow: var(--fun-shadow-card-hover), 0 0 0 3px var(--qp-accent-ring);
+}
+
+:root[data-ui='fun'] .topbar h1 { position: relative; width: fit-content; }
+:root[data-ui='fun'] .topbar h1::after {
+  background: linear-gradient(90deg, var(--qp-accent), var(--fun-warm));
+  border: 2px solid var(--fun-outline);
+  border-radius: var(--fun-radius-pill);
+  bottom: -8px;
+  box-shadow: 2px 2px 0 var(--fun-ink);
+  content: '';
+  height: 6px;
+  inset-inline-start: 0;
+  position: absolute;
+  transform: rotate(-1deg);
+  width: 4.5rem;
+}
+
 :root[data-ui='fun'] .tab.active {
   background: color-mix(in srgb, var(--qp-accent) 18%, var(--qp-surface));
   box-shadow: var(--fun-shadow-control);
@@ -596,6 +628,8 @@ td { overflow-wrap: anywhere; }
     box-shadow: 3px 3px 0 var(--fun-ink);
     transform: none;
   }
+
+  :root[data-ui='fun'] .topbar h1::after { transform: none; }
 }
 
 :root[data-ui='fun'][data-text-size='extra-large'] .card,

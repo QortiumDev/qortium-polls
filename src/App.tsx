@@ -225,9 +225,15 @@ export function App() {
       return;
     }
 
+    // Core's repository returns option indexes sorted ascending when it
+    // re-serializes the transaction for block inclusion, so an unsorted
+    // submission breaks its own signature and can never confirm. Always
+    // submit in ascending order.
+    const orderedIndexes = sortedIndexes(indexes);
+
     setPendingVote({
       pollId: selected.pollId,
-      indexes,
+      indexes: orderedIndexes,
       phase: 'signing',
       submittedAt: Date.now(),
     });
@@ -236,7 +242,7 @@ export function App() {
       const result = await qdnRequest<{ transactionSignature?: string } | undefined>({
         action: 'VOTE_ON_POLL',
         pollId: selected.pollId,
-        ...(supports142 ? { optionIndexes: indexes } : { optionIndex: indexes[0] ?? 0 }),
+        ...(supports142 ? { optionIndexes: orderedIndexes } : { optionIndex: orderedIndexes[0] ?? 0 }),
       });
       setPendingVote((current) => current && {
         ...current,

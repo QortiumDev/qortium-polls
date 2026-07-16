@@ -2,6 +2,7 @@
 // network records the vote.
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Check, CheckCircle2, Copy, Loader2, RefreshCw, Vote } from 'lucide-react';
+import { copyTextToClipboard } from './clipboard';
 import { dateText, isClosed, isScheduled, stateKey, stateLabel } from './pollFormat';
 import type { TranslateFunction, MessageKey } from './i18n';
 import type { PendingVote, Poll, PollVotes } from './types';
@@ -115,11 +116,10 @@ export function PollDetail({
   }
 
   async function copyPollLink() {
-    try {
-      await navigator.clipboard.writeText(shareAddress);
+    if (await copyTextToClipboard(shareAddress)) {
       setCopyState('copied');
       window.setTimeout(() => setCopyState('idle'), 2_500);
-    } catch {
+    } else {
       setCopyState('error');
     }
   }

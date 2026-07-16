@@ -1,6 +1,7 @@
 // Intentionally outside the i18n catalog: this is an always-English protocol reference.
 import { useState } from 'react';
 import { Copy } from 'lucide-react';
+import { copyTextToClipboard } from './clipboard';
 
 export function Reference({ supports142 }: { supports142: boolean }) {
   const [copied, setCopied] = useState('');
@@ -36,12 +37,7 @@ export function Reference({ supports142 }: { supports142: boolean }) {
   };
 
   async function copy(key: string, text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-    } catch {
-      setCopied('unavailable');
-    }
+    setCopied(await copyTextToClipboard(text) ? key : 'unavailable');
   }
 
   return (

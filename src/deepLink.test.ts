@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildPollLink, getAppBaseAddress, getInitialPollRoute, parsePollRoute } from './deepLink';
+import {
+  buildPollLink,
+  getAppBaseAddress,
+  getCurrentPollRoute,
+  getInitialPollRoute,
+  getPollRouteUrl,
+  parsePollRoute,
+} from './deepLink';
 
 describe('poll deep links', () => {
   it.each([
@@ -44,5 +51,34 @@ describe('poll deep links', () => {
 
   it('falls back to the canonical Polls identity', () => {
     expect(buildPollLink(1, {})).toBe('qdn://APP/Polls/Polls/1');
+  });
+
+  it('updates and clears rendered-app poll paths without retaining the original poll', () => {
+    const host = {
+      _qdnBase: '/render/APP/Polls/Polls',
+      _qdnPath: '/42',
+    };
+
+    expect(getPollRouteUrl(43, { pathname: '/render/APP/Polls/Polls/42' }, host))
+      .toBe('/render/APP/Polls/Polls/43');
+    expect(getPollRouteUrl(null, { pathname: '/render/APP/Polls/Polls/42' }, host))
+      .toBe('/render/APP/Polls/Polls');
+  });
+
+  it('reads the current browser route instead of the stale injected initial path', () => {
+    const host = {
+      _qdnBase: '/render/APP/Polls/Polls',
+      _qdnPath: '/42',
+    };
+
+    expect(getCurrentPollRoute({ pathname: '/render/APP/Polls/Polls/43' }, host))
+      .toEqual({ kind: 'poll', pollId: 43 });
+    expect(getCurrentPollRoute({ pathname: '/render/APP/Polls/Polls' }, host))
+      .toEqual({ kind: 'none' });
+  });
+
+  it('updates and clears local-development poll paths', () => {
+    expect(getPollRouteUrl(43, { pathname: '/42' }, {})).toBe('/43');
+    expect(getPollRouteUrl(null, { pathname: '/42' }, {})).toBe('/');
   });
 });

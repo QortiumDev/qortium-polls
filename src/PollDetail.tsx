@@ -23,6 +23,7 @@ type PollDetailProps = {
   supports142: boolean;
   translate: TranslateFunction;
   votes: PollVotes | null;
+  votesLoading: boolean;
   writeAvailable: boolean;
 };
 
@@ -49,12 +50,14 @@ export function PollDetail({
   supports142,
   translate,
   votes,
+  votesLoading,
   writeAvailable,
 }: PollDetailProps) {
   const [chosen, setChosen] = useState<number[]>([]);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const [touchedChoices, setTouchedChoices] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const resultsLoaded = votes !== null;
   const mine = votes?.voteDetails?.find((vote) => vote.voterAddress === account)?.optionIndexes ?? [];
 
   // Start from the stored vote so changing it only takes the extra clicks.
@@ -158,32 +161,44 @@ export function PollDetail({
           <section className="card results">
             <div className="section-heading">
               <h2>{translate('label.results')}</h2>
-              <button className="minor-button" onClick={() => setShowRaw(!showRaw)}>
+              <button className="minor-button" disabled={!resultsLoaded} onClick={() => setShowRaw(!showRaw)}>
                 {showRaw ? translate('vote.showEffective') : translate('vote.showRaw')}
               </button>
             </div>
-            <p className="muted">
-              {translate('label.optionSelections', {
-                voters: totalVoters,
-                votes: totalVotes,
-              })}
-            </p>
-            {optionStats.map((item) => (
-              <div className="result" key={item.index}>
-                <div>
-                  <strong>{item.index}. {item.option}</strong>
-                  <span>
-                    {translate('label.voteCount', { count: item.count })}
-                    {' · '}{translate('label.effective', { count: item.effective })}
-                    {' · '}{translate('label.raw', { count: item.raw })}
-                  </span>
-                </div>
-                <div className={item.pending ? 'bar bar--pending' : 'bar'}>
-                  <i style={{ width: `${((showRaw ? item.raw : item.effective) / max) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-            {pendingActive && <p className="muted">{translate('label.weightsPending')}</p>}
+            {votesLoading && (
+              <p className="pending-status" role="status">
+                <Loader2 size={15} className="spinner" />
+                {translate('label.loadingResults')}
+              </p>
+            )}
+            {resultsLoaded ? (
+              <>
+                <p className="muted">
+                  {translate('label.optionSelections', {
+                    voters: totalVoters,
+                    votes: totalVotes,
+                  })}
+                </p>
+                {optionStats.map((item) => (
+                  <div className="result" key={item.index}>
+                    <div>
+                      <strong>{item.index}. {item.option}</strong>
+                      <span>
+                        {translate('label.voteCount', { count: item.count })}
+                        {' · '}{translate('label.effective', { count: item.effective })}
+                        {' · '}{translate('label.raw', { count: item.raw })}
+                      </span>
+                    </div>
+                    <div className={item.pending ? 'bar bar--pending' : 'bar'}>
+                      <i style={{ width: `${((showRaw ? item.raw : item.effective) / max) * 100}%` }} />
+                    </div>
+                  </div>
+                ))}
+                {pendingActive && <p className="muted">{translate('label.weightsPending')}</p>}
+              </>
+            ) : !votesLoading ? (
+              <p className="muted">{translate('error.loadResults')}</p>
+            ) : null}
           </section>
 
           <section className="card vote-panel">
@@ -197,7 +212,7 @@ export function PollDetail({
               </Notice>
             )}
             {isClosed(poll) && <Notice tone="warning">{translate('vote.closed')}</Notice>}
-            <fieldset disabled={unavailable || busy || voteLocked}>
+            <fieldset disabled={!resultsLoaded || unavailable || busy || voteLocked}>
               {optionStats.map((item) => (
                 <label className="choice" key={item.index}>
                   <input
@@ -210,14 +225,21 @@ export function PollDetail({
                 </label>
               ))}
             </fieldset>
-            <p className="muted">
-              {translate(pendingActive ? 'label.selectionPending' : 'label.selection', {
-                selection: shownSelection.length ? selectionNames : translate('label.selectionNone'),
-              })}
-            </p>
+            {resultsLoaded ? (
+              <p className="muted">
+                {translate(pendingActive ? 'label.selectionPending' : 'label.selection', {
+                  selection: shownSelection.length ? selectionNames : translate('label.selectionNone'),
+                })}
+              </p>
+            ) : (
+              <p className="pending-status" role="status">
+                {votesLoading && <Loader2 size={15} className="spinner" />}
+                {translate(votesLoading ? 'label.loadingResults' : 'error.loadResults')}
+              </p>
+            )}
             {sameAsStored && touchedChoices && <small className="field-error" role="alert">{translate('vote.sameAsStored')}</small>}
             <button
-              disabled={unavailable || busy || voteLocked || !chosen.length || sameAsStored}
+              disabled={!resultsLoaded || unavailable || busy || voteLocked || !chosen.length || sameAsStored}
               onClick={() => onVote(chosen)}
             >
               <Vote size={16} />
@@ -225,7 +247,7 @@ export function PollDetail({
             </button>
             <button
               className="minor-button"
-              disabled={unavailable || busy || voteLocked || !mine.length}
+              disabled={!resultsLoaded || unavailable || busy || voteLocked || !mine.length}
               onClick={() => onVote([])}
             >
               {translate('action.removeVote')}
@@ -253,40 +275,49 @@ export function PollDetail({
         <section className="card table-card">
           <h2>{translate('label.voteDetails')}</h2>
           <p className="muted">{translate('label.voteDetailsHint')}</p>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{translate('label.voter')}</th>
-                  <th>{translate('label.options')}</th>
-                  <th>{translate('label.trust')}</th>
-                  <th>{translate('label.rawWeight')}</th>
-                  <th>{translate('label.effectiveWeight')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {votes?.voteDetails?.map((detail) => {
-                  const trustKey = detail.trustStatus ? TRUST_KEYS[detail.trustStatus.toUpperCase()] : undefined;
-                  const trustName = trustKey ? translate(trustKey) : detail.trustStatus ?? translate('label.unavailable');
+          {votesLoading && !resultsLoaded ? (
+            <p className="pending-status" role="status">
+              <Loader2 size={15} className="spinner" />
+              {translate('label.loadingResults')}
+            </p>
+          ) : resultsLoaded ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{translate('label.voter')}</th>
+                    <th>{translate('label.options')}</th>
+                    <th>{translate('label.trust')}</th>
+                    <th>{translate('label.rawWeight')}</th>
+                    <th>{translate('label.effectiveWeight')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {votes?.voteDetails?.map((detail) => {
+                    const trustKey = detail.trustStatus ? TRUST_KEYS[detail.trustStatus.toUpperCase()] : undefined;
+                    const trustName = trustKey ? translate(trustKey) : detail.trustStatus ?? translate('label.unavailable');
 
-                  return (
-                    <tr key={detail.voterAddress}>
-                      <td>{detail.voterAddress}</td>
-                      <td>{detail.optionIndexes?.join(', ') ?? detail.optionIndex ?? translate('label.unavailable')}</td>
-                      <td>
-                        {detail.trustWeightPercent != null
-                          ? translate('label.trustValue', { status: trustName, percent: detail.trustWeightPercent })
-                          : trustName}
-                      </td>
-                      <td>{detail.rawVoteWeight ?? 0}</td>
-                      <td>{detail.effectiveVoteWeight ?? 0}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {!votes?.voteDetails?.length && <p className="muted">{translate('label.noVoteDetails')}</p>}
+                    return (
+                      <tr key={detail.voterAddress}>
+                        <td>{detail.voterAddress}</td>
+                        <td>{detail.optionIndexes?.join(', ') ?? detail.optionIndex ?? translate('label.unavailable')}</td>
+                        <td>
+                          {detail.trustWeightPercent != null
+                            ? translate('label.trustValue', { status: trustName, percent: detail.trustWeightPercent })
+                            : trustName}
+                        </td>
+                        <td>{detail.rawVoteWeight ?? 0}</td>
+                        <td>{detail.effectiveVoteWeight ?? 0}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted">{translate('error.loadResults')}</p>
+          )}
+          {resultsLoaded && !votes?.voteDetails?.length && <p className="muted">{translate('label.noVoteDetails')}</p>}
         </section>
       </section>
     </main>

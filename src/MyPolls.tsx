@@ -1,5 +1,6 @@
 // Demonstrates owner filtering and the owner-only UPDATE_POLL transaction flow.
 import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { EditPoll } from './EditPoll';
 import { isClosed, stateLabel } from './pollFormat';
 import type { TranslateFunction } from './i18n';
@@ -10,6 +11,7 @@ type MyPollsProps = {
   account: string;
   busy: boolean;
   language: string;
+  loaded: boolean;
   loading: boolean;
   lockedNote: string;
   onOpen: (poll: Poll) => void;
@@ -24,6 +26,7 @@ export function MyPolls({
   account,
   busy,
   language,
+  loaded,
   loading,
   lockedNote,
   onOpen,
@@ -64,10 +67,19 @@ export function MyPolls({
         </div>
       </div>
       {lockedNote && <Notice tone="warning">{lockedNote}</Notice>}
-      {loading ? (
-        <div className="empty-state">{translate('label.loadingMyPolls')}</div>
+      {loading && !polls.length ? (
+        <div className="empty-state">
+          <Loader2 className="spinner" />
+          {translate('label.loadingMyPolls')}
+        </div>
       ) : (
         <div className="poll-list">
+          {loading && (
+            <p className="pending-status" role="status">
+              <Loader2 size={15} className="spinner" />
+              {translate('label.loadingMyPolls')}
+            </p>
+          )}
           {polls.map((poll) => (
             <article className="poll-row card" key={poll.pollId}>
               <div>
@@ -80,7 +92,7 @@ export function MyPolls({
               </div>
             </article>
           ))}
-          {!polls.length && <div className="empty-state">{translate('empty.myPolls')}</div>}
+          {loaded && !polls.length && <div className="empty-state">{translate('empty.myPolls')}</div>}
         </div>
       )}
     </section>

@@ -9,6 +9,7 @@ export const POLL_PAGE_SIZE = 20;
 
 type BrowsePollsProps = {
   language: string;
+  loaded: boolean;
   loading: boolean;
   offset: number;
   onOpen: (poll: Poll) => void;
@@ -28,6 +29,7 @@ type BrowsePollsProps = {
 
 export function BrowsePolls({
   language,
+  loaded,
   loading,
   offset,
   onOpen,
@@ -78,16 +80,22 @@ export function BrowsePolls({
             <option value="false">{translate('sort.oldest')}</option>
           </select>
         </label>
-        <button type="submit">{translate('action.search')}</button>
+        <button type="submit" disabled={loading}>{translate('action.search')}</button>
       </form>
 
-      {loading ? (
+      {loading && !polls.length ? (
         <div className="empty-state">
           <Loader2 className="spinner" />
           {translate('label.loadingPolls')}
         </div>
       ) : (
         <div className="poll-list">
+          {loading && (
+            <p className="pending-status" role="status">
+              <Loader2 size={15} className="spinner" />
+              {translate('label.loadingPolls')}
+            </p>
+          )}
           {polls.map((poll) => (
             <button className="poll-row card" key={poll.pollId} onClick={() => onOpen(poll)}>
               <div>
@@ -100,16 +108,16 @@ export function BrowsePolls({
               </div>
             </button>
           ))}
-          {!polls.length && <div className="empty-state">{translate('empty.polls')}</div>}
+          {loaded && !polls.length && <div className="empty-state">{translate('empty.polls')}</div>}
         </div>
       )}
 
       <div className="pager">
-        <button disabled={!offset} onClick={() => onPage(offset - POLL_PAGE_SIZE)}>
+        <button disabled={loading || !offset} onClick={() => onPage(offset - POLL_PAGE_SIZE)}>
           {translate('action.previous')}
         </button>
         <span>{translate('label.page', { page: Math.floor(offset / POLL_PAGE_SIZE) + 1 })}</span>
-        <button disabled={polls.length < POLL_PAGE_SIZE} onClick={() => onPage(offset + POLL_PAGE_SIZE)}>
+        <button disabled={loading || polls.length < POLL_PAGE_SIZE} onClick={() => onPage(offset + POLL_PAGE_SIZE)}>
           {translate('action.next')}
         </button>
       </div>

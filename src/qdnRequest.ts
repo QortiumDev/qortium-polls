@@ -242,31 +242,26 @@ export async function getBridgeState(): Promise<BridgeState> {
   let actions: string[] = [];
   let ui = hasHomeBridge() ? 'QORTIUM_HOME' : 'BROWSER_DEV';
   let isUsingPublicNode = false;
+  const [actionsResult, publicNodeResult, uiResult] = await Promise.allSettled([
+    qdnRequest<unknown>({ action: 'SHOW_ACTIONS' }),
+    qdnRequest<unknown>({ action: 'IS_USING_PUBLIC_NODE' }),
+    qdnRequest<unknown>({ action: 'WHICH_UI' }),
+  ]);
 
-  try {
-    const requestedActions = await qdnRequest<unknown>({ action: 'SHOW_ACTIONS' });
-
-    actions = Array.isArray(requestedActions)
-      ? requestedActions.filter((action): action is string => typeof action === 'string')
+  if (actionsResult.status === 'fulfilled') {
+    actions = Array.isArray(actionsResult.value)
+      ? actionsResult.value.filter((action): action is string => typeof action === 'string')
       : [];
-  } catch {
+  } else {
     actions = [...LOCAL_READ_ACTIONS];
   }
 
-  try {
-    isUsingPublicNode = (await qdnRequest<unknown>({ action: 'IS_USING_PUBLIC_NODE' })) === true;
-  } catch {
-    // Old hosts did not expose this read-only mode signal.
+  if (publicNodeResult.status === 'fulfilled') {
+    isUsingPublicNode = publicNodeResult.value === true;
   }
 
-  try {
-    const requestedUi = await qdnRequest<unknown>({ action: 'WHICH_UI' });
-
-    if (typeof requestedUi === 'string' && requestedUi) {
-      ui = requestedUi;
-    }
-  } catch {
-    // Keep inferred UI.
+  if (uiResult.status === 'fulfilled' && typeof uiResult.value === 'string' && uiResult.value) {
+    ui = uiResult.value;
   }
 
   return {

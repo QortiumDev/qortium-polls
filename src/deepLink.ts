@@ -8,6 +8,7 @@ type LocationLike = {
 };
 
 type QdnHostGlobals = {
+  _qdnBase?: unknown;
   _qdnIdentifier?: unknown;
   _qdnName?: unknown;
   _qdnPath?: unknown;
@@ -53,6 +54,17 @@ function getInitialPath(location?: LocationLike, host?: QdnHostGlobals) {
   return /^\/render\//i.test(pathname) ? '' : pathname;
 }
 
+function getBrowserPath(location?: LocationLike, host?: QdnHostGlobals) {
+  const pathname = resolveLocation(location).pathname ?? '';
+  const qdnBase = cleanGlobal(resolveHost(host)._qdnBase).replace(/\/+$/, '');
+
+  if (qdnBase && (pathname === qdnBase || pathname.startsWith(`${qdnBase}/`))) {
+    return pathname.slice(qdnBase.length);
+  }
+
+  return /^\/render\//i.test(pathname) ? '' : pathname;
+}
+
 export function parsePollRoute(path: string): InitialPollRoute {
   const routePath = path.split(/[?#]/, 1)[0].replace(/^\/+|\/+$/g, '');
 
@@ -75,6 +87,18 @@ export function parsePollRoute(path: string): InitialPollRoute {
 
 export function getInitialPollRoute(location?: LocationLike, host?: QdnHostGlobals) {
   return parsePollRoute(getInitialPath(location, host));
+}
+
+export function getCurrentPollRoute(location?: LocationLike, host?: QdnHostGlobals) {
+  return parsePollRoute(getBrowserPath(location, host));
+}
+
+export function getPollRouteUrl(pollId: number | null, location?: LocationLike, host?: QdnHostGlobals) {
+  const pathname = resolveLocation(location).pathname ?? '/';
+  const qdnBase = cleanGlobal(resolveHost(host)._qdnBase).replace(/\/+$/, '');
+  const basePath = qdnBase || (/^\/(?:\d+)\/?$/.test(pathname) ? '' : pathname.replace(/\/+$/, ''));
+
+  return pollId === null ? basePath || '/' : `${basePath}/${pollId}`;
 }
 
 export function getAppBaseAddress(host?: QdnHostGlobals) {

@@ -80,6 +80,7 @@ export const EN_STRINGS = {
   'label.loadingMyPolls': 'Loading your polls…',
   'label.loadingPoll': 'Loading poll…',
   'label.loadingPolls': 'Loading polls…',
+  'label.loadingResults': 'Loading results…',
   'label.noDescription': 'No description.',
   'label.noEndTime': 'No end time',
   'label.noStartTime': 'later',

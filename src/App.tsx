@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { BrowsePolls, POLL_PAGE_SIZE } from './BrowsePolls';
 import { CreatePoll } from './CreatePoll';
-import { buildPollLink, getInitialPollRoute } from './deepLink';
+import { buildPollLink, getCurrentPollRoute, getInitialPollRoute, getPollRouteUrl } from './deepLink';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
 import { createTranslator } from './i18n';
 import { MyPolls } from './MyPolls';
@@ -19,6 +19,7 @@ type Tab = 'browse' | 'create' | 'mine' | 'reference';
 type Filters = { owner: string; query: string; reverse?: boolean; status: string };
 type Message = { text: string; tone: 'error' | 'info' } | null;
 type DirectLinkState = 'none' | 'loading' | 'invalid' | 'not-found' | 'error';
+type HistoryMode = 'none' | 'push' | 'replace';
 
 const emptyBridge: BridgeState = {
   actions: [],
@@ -51,8 +52,11 @@ export function App() {
   const [host, setHost] = useState<HostInfo | null>(null);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [myPolls, setMyPolls] = useState<Poll[]>([]);
+  const [pollsLoaded, setPollsLoaded] = useState(false);
+  const [myPollsLoaded, setMyPollsLoaded] = useState(false);
   const [selected, setSelected] = useState<Poll | null>(null);
   const [votes, setVotes] = useState<PollVotes | null>(null);
+  const [votesLoading, setVotesLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [owner, setOwner] = useState('');
   const [status, setStatus] = useState('OPEN');
@@ -73,6 +77,10 @@ export function App() {
   );
   const [settings, setSettings] = useState(getInitialDisplaySettings);
   const openRequestRef = useRef(0);
+  const browseRequestRef = useRef(0);
+  const mineRequestRef = useRef(0);
+  const browseResultKeyRef = useRef('');
+  const mineResultKeyRef = useRef('');
   const selectedRef = useRef<Poll | null>(null);
   const translate = useMemo(() => createTranslator(settings.language), [settings.language]);
   const supports142 = versionAtLeast(host?.hostVersion);
@@ -108,26 +116,21 @@ export function App() {
   }, [settings]);
 
   async function loadContext() {
-    try {
-      const state = await getBridgeState();
-      setBridge(state);
+    const [bridgeResult, hostResult, accountResult] = await Promise.allSettled([
+      getBridgeState(),
+      qdnRequest<HostInfo>({ action: 'GET_HOST_INFO' }),
+      qdnRequest<{ address?: string }>({ action: 'GET_SELECTED_ACCOUNT' }),
+    ]);
 
-      try {
-        setHost(await qdnRequest<HostInfo>({ action: 'GET_HOST_INFO' }));
-      } catch {
-        setHost(null);
-      }
-
-      try {
-        const selectedAccount = await qdnRequest<{ address?: string }>({ action: 'GET_SELECTED_ACCOUNT' });
-        setAccount(selectedAccount.address ?? '');
-      } catch {
-        setAccount('');
-      }
-    } catch (error) {
-      console.error('Failed to load bridge context', error);
+    if (bridgeResult.status === 'fulfilled') {
+      setBridge(bridgeResult.value);
+    } else {
+      console.error('Failed to load bridge context', bridgeResult.reason);
       setMessage({ text: translate('error.default'), tone: 'error' });
     }
+
+    setHost(hostResult.status === 'fulfilled' ? hostResult.value : null);
+    setAccount(accountResult.status === 'fulfilled' ? accountResult.value.address ?? '' : '');
   }
 
   async function loadPolls(
@@ -137,9 +140,26 @@ export function App() {
   ) {
     const setDestinationPolls = destination === 'mine' ? setMyPolls : setPolls;
     const setDestinationLoading = destination === 'mine' ? setLoadingMine : setLoading;
+    const setDestinationLoaded = destination === 'mine' ? setMyPollsLoaded : setPollsLoaded;
+    const requestRef = destination === 'mine' ? mineRequestRef : browseRequestRef;
+    const resultKeyRef = destination === 'mine' ? mineResultKeyRef : browseResultKeyRef;
+    const requestId = requestRef.current + 1;
+    const requestKey = JSON.stringify({
+      offset: nextOffset,
+      owner: filters.owner.trim(),
+      query: filters.query.trim(),
+      reverse: filters.reverse ?? reverse,
+      status: filters.status,
+    });
+    requestRef.current = requestId;
 
     setDestinationLoading(true);
+    setDestinationLoaded(false);
     setMessage(null);
+
+    if (resultKeyRef.current !== requestKey) {
+      setDestinationPolls([]);
+    }
 
     try {
       const params = new URLSearchParams({
@@ -162,26 +182,63 @@ export function App() {
         path: `/polls/search?${params}`,
         maxBytes: 1_000_000,
       }));
+      if (requestRef.current !== requestId) {
+        return;
+      }
+
+      resultKeyRef.current = requestKey;
       setDestinationPolls(Array.isArray(result) ? result : []);
+      setDestinationLoaded(true);
 
       if (destination === 'browse') {
         setOffset(nextOffset);
       }
     } catch (error) {
       console.error('Failed to load polls', error);
-      setDestinationPolls([]);
-      setMessage({ text: translate('error.loadPolls'), tone: 'error' });
+
+      if (requestRef.current === requestId) {
+        setMessage({ text: translate('error.loadPolls'), tone: 'error' });
+      }
     } finally {
-      setDestinationLoading(false);
+      if (requestRef.current === requestId) {
+        setDestinationLoading(false);
+      }
     }
   }
 
-  async function openPoll(poll: Poll) {
-    const requestId = openRequestRef.current + 1;
-    openRequestRef.current = requestId;
-    setSelected(poll);
+  function syncPollRoute(pollId: number | null, historyMode: Exclude<HistoryMode, 'none'>) {
+    window.history[historyMode === 'replace' ? 'replaceState' : 'pushState'](
+      window.history.state,
+      '',
+      getPollRouteUrl(pollId),
+    );
+  }
+
+  function closePoll(historyMode: Exclude<HistoryMode, 'none'> = 'replace') {
+    openRequestRef.current += 1;
+    setSelected(null);
     setVotes(null);
+    setVotesLoading(false);
+    setDirectLinkState('none');
+    setMessage(null);
+    syncPollRoute(null, historyMode);
+  }
+
+  async function openPoll(poll: Poll, historyMode: HistoryMode = 'push') {
+    const requestId = openRequestRef.current + 1;
+    const isRefreshingSelectedPoll = selectedRef.current?.pollId === poll.pollId;
+    openRequestRef.current = requestId;
+    setMessage(null);
+    setSelected(poll);
+    if (!isRefreshingSelectedPoll) {
+      setVotes(null);
+    }
+    setVotesLoading(true);
     setTab('browse');
+
+    if (historyMode !== 'none') {
+      syncPollRoute(poll.pollId, historyMode);
+    }
 
     try {
       const result = responseData<PollVotes>(await qdnRequest({
@@ -192,17 +249,19 @@ export function App() {
 
       if (openRequestRef.current === requestId && selectedRef.current?.pollId === poll.pollId) {
         setVotes(result);
+        setVotesLoading(false);
       }
     } catch (error) {
       console.error('Failed to load poll results', error);
 
-      if (openRequestRef.current === requestId) {
+      if (openRequestRef.current === requestId && selectedRef.current?.pollId === poll.pollId) {
         setMessage({ text: translate('error.loadResults'), tone: 'error' });
+        setVotesLoading(false);
       }
     }
   }
 
-  async function openPollById(pollId: number) {
+  async function openPollById(pollId: number, historyMode: HistoryMode = 'none') {
     setDirectLinkState('loading');
 
     try {
@@ -213,7 +272,7 @@ export function App() {
       }));
 
       setDirectLinkState('none');
-      await openPoll(poll);
+      await openPoll(poll, historyMode);
     } catch (error) {
       console.error('Failed to load linked poll', error);
       const detail = errorText(error, '');
@@ -222,20 +281,49 @@ export function App() {
   }
 
   useEffect(() => {
-    void loadContext().then(() => {
-      void loadPolls(0);
+    // Poll reads do not depend on account or host context. Start them
+    // immediately so a deep link is not held behind several bridge calls.
+    void loadContext();
 
-      if (initialPollRoute.kind === 'poll') {
-        void openPollById(initialPollRoute.pollId);
+    if (initialPollRoute.kind === 'poll') {
+      void openPollById(initialPollRoute.pollId);
+    }
+
+    void loadPolls(0);
+  }, []);
+
+  useEffect(() => {
+    function onPopState() {
+      const route = getCurrentPollRoute();
+
+      if (route.kind === 'poll') {
+        void openPollById(route.pollId, 'none');
+      } else if (route.kind === 'invalid') {
+        openRequestRef.current += 1;
+        setSelected(null);
+        setVotes(null);
+        setVotesLoading(false);
+        setDirectLinkState('invalid');
+      } else {
+        openRequestRef.current += 1;
+        setSelected(null);
+        setVotes(null);
+        setVotesLoading(false);
+        setDirectLinkState('none');
+        setMessage(null);
       }
-    });
+    }
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   function refresh() {
-    void loadContext().then(() => loadPolls(offset));
+    void loadContext();
+    void loadPolls(offset);
 
     if (selected) {
-      void openPoll(selected);
+      void openPoll(selected, 'none');
     }
   }
 
@@ -320,7 +408,7 @@ export function App() {
         : current);
 
       if (selectedRef.current?.pollId === watched.pollId) {
-        void openPoll(selectedRef.current);
+        void openPoll(selectedRef.current, 'none');
       }
 
       window.setTimeout(() => {
@@ -455,8 +543,7 @@ export function App() {
             <Notice tone="error">{translate(errorKey)}</Notice>
             <button
               onClick={() => {
-                setDirectLinkState('none');
-                setMessage(null);
+                closePoll();
               }}
             >
               {translate('action.browsePolls')}
@@ -472,6 +559,7 @@ export function App() {
       <PollDetail
         poll={selected}
         votes={votes}
+        votesLoading={votesLoading}
         account={account}
         language={settings.language}
         supports142={supports142}
@@ -482,11 +570,8 @@ export function App() {
         pendingVote={pendingVote}
         shareAddress={buildPollLink(selected.pollId)}
         translate={translate}
-        onBack={() => {
-          setSelected(null);
-          setMessage(null);
-        }}
-        onRefresh={() => void openPoll(selected)}
+        onBack={() => closePoll()}
+        onRefresh={() => void openPoll(selected, 'none')}
         onVote={submitVote}
       />
     );
@@ -534,6 +619,7 @@ export function App() {
       {tab === 'browse' && (
         <BrowsePolls
           polls={polls}
+          loaded={pollsLoaded}
           loading={loading}
           query={query}
           owner={owner}
@@ -568,6 +654,7 @@ export function App() {
         <MyPolls
           account={account}
           polls={myPolls}
+          loaded={myPollsLoaded}
           loading={loadingMine}
           language={settings.language}
           supports142={supports142}

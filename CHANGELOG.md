@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.7 - 2026-07-18
+
+- Preserve Home bridge and display query parameters, along with the current URL
+  fragment, when opening another poll or returning to Browse.
+
 ## 1.5.6 - 2026-07-18
 
 - Show explicit loading states instead of temporary empty poll lists or zero

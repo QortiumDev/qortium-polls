@@ -65,6 +65,25 @@ describe('poll deep links', () => {
       .toBe('/render/APP/Polls/Polls');
   });
 
+  it('preserves host query parameters and the fragment when changing rendered-app poll paths', () => {
+    const host = {
+      _qdnBase: '/render/APP/Polls/Polls',
+      _qdnPath: '/42',
+    };
+    const location = {
+      hash: '#results',
+      pathname: '/render/APP/Polls/Polls/42',
+      search: '?theme=dark&qdnHomeBridge=bridge-token&lang=fr',
+    };
+
+    expect(getPollRouteUrl(43, location, host)).toBe(
+      '/render/APP/Polls/Polls/43?theme=dark&qdnHomeBridge=bridge-token&lang=fr#results',
+    );
+    expect(getPollRouteUrl(null, location, host)).toBe(
+      '/render/APP/Polls/Polls?theme=dark&qdnHomeBridge=bridge-token&lang=fr#results',
+    );
+  });
+
   it('reads the current browser route instead of the stale injected initial path', () => {
     const host = {
       _qdnBase: '/render/APP/Polls/Polls',
@@ -80,5 +99,15 @@ describe('poll deep links', () => {
   it('updates and clears local-development poll paths', () => {
     expect(getPollRouteUrl(43, { pathname: '/42' }, {})).toBe('/43');
     expect(getPollRouteUrl(null, { pathname: '/42' }, {})).toBe('/');
+  });
+
+  it('preserves local-development query parameters and fragments', () => {
+    expect(
+      getPollRouteUrl(
+        43,
+        { hash: '#details', pathname: '/42', search: '?theme=light&accent=blue' },
+        {},
+      ),
+    ).toBe('/43?theme=light&accent=blue#details');
   });
 });

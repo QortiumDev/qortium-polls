@@ -13,6 +13,7 @@ import { getBridgeState, qdnRequest } from './qdnRequest';
 import { Reference } from './Reference';
 import type { BridgeState, HostInfo, PendingVote, Poll, PollVotes } from './types';
 import { Notice } from './ui';
+import { loadVoterIdentities, type VoterIdentity } from './voterIdentities';
 import { getPollWriteAvailability } from './writeAvailability';
 
 type Tab = 'browse' | 'create' | 'mine' | 'reference';
@@ -56,6 +57,7 @@ export function App() {
   const [myPollsLoaded, setMyPollsLoaded] = useState(false);
   const [selected, setSelected] = useState<Poll | null>(null);
   const [votes, setVotes] = useState<PollVotes | null>(null);
+  const [voterIdentities, setVoterIdentities] = useState<ReadonlyMap<string, VoterIdentity>>(() => new Map());
   const [votesLoading, setVotesLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [owner, setOwner] = useState('');
@@ -83,6 +85,7 @@ export function App() {
   const mineResultKeyRef = useRef('');
   const selectedRef = useRef<Poll | null>(null);
   const translate = useMemo(() => createTranslator(settings.language), [settings.language]);
+  const bridgeActionsKey = bridge.actions.join('\u0000');
   const supports142 = versionAtLeast(host?.hostVersion);
   const writeState = getPollWriteAvailability(bridge.actions, !!bridge.isUsingPublicNode);
   const writeAvailable = writeState.available;
@@ -100,6 +103,33 @@ export function App() {
   useEffect(() => {
     applyDisplaySettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    const addresses = votes?.voteDetails?.map((detail) => detail.voterAddress) ?? [];
+
+    if (!selected || !addresses.length) {
+      setVoterIdentities(new Map());
+      return;
+    }
+
+    let active = true;
+
+    void loadVoterIdentities(addresses, bridge.actions)
+      .then((identities) => {
+        if (active) {
+          setVoterIdentities(identities);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setVoterIdentities(new Map());
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selected?.pollId, votes, bridgeActionsKey]);
 
   useEffect(() => {
     function listener(event: MessageEvent) {
@@ -559,6 +589,7 @@ export function App() {
       <PollDetail
         poll={selected}
         votes={votes}
+        voterIdentities={voterIdentities}
         votesLoading={votesLoading}
         account={account}
         language={settings.language}

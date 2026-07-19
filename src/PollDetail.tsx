@@ -7,6 +7,7 @@ import { dateText, isClosed, isScheduled, stateKey, stateLabel } from './pollFor
 import type { TranslateFunction, MessageKey } from './i18n';
 import type { PendingVote, Poll, PollVotes } from './types';
 import { Notice } from './ui';
+import type { VoterIdentity } from './voterIdentities';
 
 type PollDetailProps = {
   account: string;
@@ -23,6 +24,7 @@ type PollDetailProps = {
   supports142: boolean;
   translate: TranslateFunction;
   votes: PollVotes | null;
+  voterIdentities: ReadonlyMap<string, VoterIdentity>;
   votesLoading: boolean;
   writeAvailable: boolean;
 };
@@ -50,6 +52,7 @@ export function PollDetail({
   supports142,
   translate,
   votes,
+  voterIdentities,
   votesLoading,
   writeAvailable,
 }: PollDetailProps) {
@@ -299,7 +302,12 @@ export function PollDetail({
 
                     return (
                       <tr key={detail.voterAddress}>
-                        <td>{detail.voterAddress}</td>
+                        <td>
+                          <VoterIdentityCell
+                            address={detail.voterAddress}
+                            identity={voterIdentities.get(detail.voterAddress)}
+                          />
+                        </td>
                         <td>{detail.optionIndexes?.join(', ') ?? detail.optionIndex ?? translate('label.unavailable')}</td>
                         <td>
                           {detail.trustWeightPercent != null
@@ -321,5 +329,33 @@ export function PollDetail({
         </section>
       </section>
     </main>
+  );
+}
+
+function VoterIdentityCell({ address, identity }: { address: string; identity?: VoterIdentity }) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const name = identity?.name ?? null;
+  const avatarSrc = identity?.avatarSrc ?? null;
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarSrc]);
+
+  if (!name && (!avatarSrc || avatarFailed)) {
+    return <span className="voter-address" title={address}>{address}</span>;
+  }
+
+  const label = name ?? address;
+  const initial = name ? Array.from(name)[0]?.toLocaleUpperCase() ?? '?' : '?';
+
+  return (
+    <span className="voter-identity" title={address} aria-label={`${label} (${address})`}>
+      {avatarSrc && !avatarFailed ? (
+        <img src={avatarSrc} alt="" onError={() => setAvatarFailed(true)} />
+      ) : (
+        <span className="voter-avatar-fallback" aria-hidden="true">{initial}</span>
+      )}
+      <strong>{label}</strong>
+    </span>
   );
 }

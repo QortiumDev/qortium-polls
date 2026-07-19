@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.8 - 2026-07-18
+
+- Show voter avatars and prefer primary or first registered names in poll vote
+  details, while keeping the account address as the fallback and audit context.
+- Batch Home identity resolution in groups of 500 and use bounded fallback
+  lookups without delaying the poll results themselves.
+
 ## 1.5.7 - 2026-07-18
 
 - Preserve Home bridge and display query parameters, along with the current URL

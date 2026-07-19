@@ -4,7 +4,9 @@ const DEFAULT_IDENTIFIER = 'Polls';
 const MAX_POLL_ID = 2_147_483_647;
 
 type LocationLike = {
+  hash?: string;
   pathname?: string;
+  search?: string;
 };
 
 type QdnHostGlobals = {
@@ -94,11 +96,13 @@ export function getCurrentPollRoute(location?: LocationLike, host?: QdnHostGloba
 }
 
 export function getPollRouteUrl(pollId: number | null, location?: LocationLike, host?: QdnHostGlobals) {
-  const pathname = resolveLocation(location).pathname ?? '/';
+  const resolvedLocation = resolveLocation(location);
+  const pathname = resolvedLocation.pathname ?? '/';
   const qdnBase = cleanGlobal(resolveHost(host)._qdnBase).replace(/\/+$/, '');
   const basePath = qdnBase || (/^\/(?:\d+)\/?$/.test(pathname) ? '' : pathname.replace(/\/+$/, ''));
+  const routePath = pollId === null ? basePath || '/' : `${basePath}/${pollId}`;
 
-  return pollId === null ? basePath || '/' : `${basePath}/${pollId}`;
+  return `${routePath}${resolvedLocation.search ?? ''}${resolvedLocation.hash ?? ''}`;
 }
 
 export function getAppBaseAddress(host?: QdnHostGlobals) {

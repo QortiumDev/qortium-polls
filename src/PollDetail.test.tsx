@@ -38,6 +38,7 @@ function renderDetail(overrides: Partial<Parameters<typeof PollDetail>[0]> = {})
     supports142
     translate={translate}
     votes={null}
+    voterIdentities={new Map()}
     votesLoading
     writeAvailable
     {...overrides}
@@ -68,5 +69,36 @@ describe('poll result loading states', () => {
     expect(markup).toContain('0 people voted, choosing 0 options in total.');
     expect(markup).toContain('No votes yet.');
     expect(markup).not.toContain('Loading results…');
+  });
+
+  it('shows a voter name and avatar while retaining the address as context', () => {
+    const namedVotes: PollVotes = {
+      ...votes,
+      voteDetails: [{ voterAddress: 'Qalice', optionIndexes: [1], rawVoteWeight: 1, effectiveVoteWeight: 1 }],
+    };
+    const markup = renderDetail({
+      votes: namedVotes,
+      votesLoading: false,
+      voterIdentities: new Map([[
+        'Qalice',
+        { address: 'Qalice', avatarSrc: 'https://node.test/avatar', name: 'Alice' },
+      ]]),
+    });
+
+    expect(markup).toContain('src="https://node.test/avatar"');
+    expect(markup).toContain('<strong>Alice</strong>');
+    expect(markup).toContain('title="Qalice"');
+    expect(markup).not.toContain('<td>Qalice</td>');
+  });
+
+  it('falls back to the voter address when no identity is registered', () => {
+    const anonymousVotes: PollVotes = {
+      ...votes,
+      voteDetails: [{ voterAddress: 'Qanonymous', optionIndexes: [2] }],
+    };
+    const markup = renderDetail({ votes: anonymousVotes, votesLoading: false });
+
+    expect(markup).toContain('class="voter-address"');
+    expect(markup).toContain('>Qanonymous</span>');
   });
 });

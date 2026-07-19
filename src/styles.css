@@ -452,6 +452,24 @@ th,
 td { border-block-end: 1px solid var(--qp-border); padding: 0.55em; text-align: start; vertical-align: top; }
 th { color: var(--qp-text-secondary); font-size: var(--qp-text-small); }
 td { overflow-wrap: anywhere; }
+.voter-address { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.voter-identity { align-items: center; display: inline-flex; gap: 0.55em; min-width: 9rem; white-space: nowrap; }
+.voter-identity img,
+.voter-avatar-fallback {
+  align-items: center;
+  background: var(--qp-accent-soft);
+  border: 1px solid var(--qp-border);
+  border-radius: 50%;
+  color: var(--qp-accent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: var(--qp-text-small);
+  font-weight: 700;
+  height: 2rem;
+  justify-content: center;
+  object-fit: cover;
+  width: 2rem;
+}
 
 .form-page { max-width: 840px; }
 .form-card > div { display: grid; gap: 10px; }

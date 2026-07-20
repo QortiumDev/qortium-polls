@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.9 - 2026-07-19
+
+- Added the app icon (result-bars proto-icon) and wired `favicon.ico` so the
+  app displays a proper tile icon in Qortium Home.
+
 ## 1.5.8 - 2026-07-18
 
 - Show voter avatars and prefer primary or first registered names in poll vote

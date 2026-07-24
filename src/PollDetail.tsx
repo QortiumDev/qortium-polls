@@ -335,7 +335,7 @@ export function PollDetail({
 function VoterIdentityCell({ address, identity }: { address: string; identity?: VoterIdentity }) {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const name = identity?.name ?? null;
-  const avatarSrc = identity?.avatarSrc ?? null;
+  const avatarSrc = identity?.avatarSrc?.startsWith('blob:') ? identity.avatarSrc : null;
 
   useEffect(() => {
     setAvatarFailed(false);

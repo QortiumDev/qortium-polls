@@ -1,5 +1,5 @@
 import { responseData } from './pollFormat';
-import { getNodeApiUrl, hasAction, qdnRequest } from './qdnRequest';
+import { hasAction, qdnRequest } from './qdnRequest';
 
 export type VoterIdentity = {
   address: string;
@@ -7,8 +7,17 @@ export type VoterIdentity = {
   name: string | null;
 };
 
+const AVATAR_MAX_BYTES = 500 * 1024;
+const AVATAR_RETRY_LIMIT = 3;
+const AVATAR_FETCH_CONCURRENCY = 6;
 const RESOLVE_IDENTITIES_LIMIT = 500;
-const FALLBACK_CONCURRENCY = 6;
+const SAFE_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp']);
+const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+type AccountAvatarFetch =
+  | { kind: 'pending'; retryAfterSeconds: number }
+  | { kind: 'ready'; src: string }
+  | { kind: 'unavailable' };
 
 function normalizedName(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -30,6 +39,106 @@ function firstRegisteredName(value: unknown) {
     if (name) {
       return name;
     }
+  }
+
+  return null;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function text(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function hasPointerDescriptor(value: unknown) {
+  const descriptor = record(value);
+  return !!text(descriptor?.service) && !!text(descriptor?.name) && typeof descriptor?.identifier === 'string';
+}
+
+function decodeBase64(value: string) {
+  if (!value || !BASE64_PATTERN.test(value)) {
+    return null;
+  }
+
+  try {
+    const binary = atob(value);
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function parseAccountAvatar(value: unknown, expectedAddress: string): AccountAvatarFetch {
+  const response = record(value);
+  const source = response?.source;
+
+  if (response?.address !== expectedAddress || (source !== 'POINTER' && source !== 'LEGACY')) {
+    return { kind: 'unavailable' };
+  }
+
+  if (source === 'POINTER' && !hasPointerDescriptor(response.descriptor)) {
+    return { kind: 'unavailable' };
+  }
+
+  if (response.status === 'PENDING') {
+    const delay = typeof response.retryAfterSeconds === 'number' && Number.isFinite(response.retryAfterSeconds)
+      ? response.retryAfterSeconds
+      : 5;
+    return { kind: 'pending', retryAfterSeconds: Math.min(Math.max(Math.floor(delay), 1), 30) };
+  }
+
+  if (response.encoding !== 'base64' || typeof response.body !== 'string' || typeof response.contentType !== 'string') {
+    return { kind: 'unavailable' };
+  }
+
+  const contentType = response.contentType.toLowerCase().split(';', 1)[0];
+  const contentLength = response.contentLength;
+  const bytes = decodeBase64(response.body);
+
+  if (
+    !SAFE_IMAGE_MIME_TYPES.has(contentType) ||
+    typeof contentLength !== 'number' ||
+    !Number.isSafeInteger(contentLength) ||
+    contentLength < 1 ||
+    contentLength > AVATAR_MAX_BYTES ||
+    !bytes ||
+    bytes.byteLength !== contentLength
+  ) {
+    return { kind: 'unavailable' };
+  }
+
+  return { kind: 'ready', src: URL.createObjectURL(new Blob([bytes.buffer], { type: contentType })) };
+}
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function fetchAccountAvatar(address: string, actions: string[], attempts = 0): Promise<string | null> {
+  if (!hasAction(actions, 'FETCH_ACCOUNT_AVATAR')) {
+    return null;
+  }
+
+  let result: AccountAvatarFetch;
+
+  try {
+    result = parseAccountAvatar(
+      await qdnRequest<unknown>({ action: 'FETCH_ACCOUNT_AVATAR', address, maxBytes: AVATAR_MAX_BYTES }),
+      address,
+    );
+  } catch {
+    return null;
+  }
+
+  if (result.kind === 'ready') {
+    return result.src;
+  }
+
+  if (result.kind === 'pending' && attempts < AVATAR_RETRY_LIMIT) {
+    await delay(result.retryAfterSeconds * 1000);
+    return fetchAccountAvatar(address, actions, attempts + 1);
   }
 
   return null;
@@ -64,52 +173,27 @@ async function loadName(address: string) {
   }
 }
 
-async function loadAvatarSrc(name: string, actions: string[]) {
-  if (hasAction(actions, 'GET_QDN_RESOURCE_URL')) {
-    try {
-      const renderUrl = await qdnRequest<unknown>({
-        action: 'GET_QDN_RESOURCE_URL',
-        service: 'THUMBNAIL',
-        name,
-        identifier: 'avatar',
-      });
-
-      return typeof renderUrl === 'string' && renderUrl ? renderUrl : null;
-    } catch {
-      return null;
-    }
-  }
-
-  return `${getNodeApiUrl()}/arbitrary/THUMBNAIL/${encodeURIComponent(name)}/avatar?async=true`;
-}
-
-async function loadIdentity(address: string, actions: string[]): Promise<VoterIdentity> {
-  const name = await loadName(address);
-
-  return {
-    address,
-    avatarSrc: name ? await loadAvatarSrc(name, actions) : null,
-    name,
-  };
-}
-
-async function loadFallbackIdentities(addresses: string[], actions: string[]) {
-  const results = new Array<VoterIdentity>(addresses.length);
+async function mapWithConcurrency<T, R>(items: T[], resolve: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
   let cursor = 0;
 
-  await Promise.all(Array.from({ length: Math.min(FALLBACK_CONCURRENCY, addresses.length) }, async () => {
-    while (cursor < addresses.length) {
+  await Promise.all(Array.from({ length: Math.min(AVATAR_FETCH_CONCURRENCY, items.length) }, async () => {
+    while (cursor < items.length) {
       const index = cursor;
       cursor += 1;
-      results[index] = await loadIdentity(addresses[index], actions);
+      results[index] = await resolve(items[index]);
     }
   }));
 
   return results;
 }
 
+async function loadFallbackIdentities(addresses: string[]) {
+  return mapWithConcurrency(addresses, async (address) => ({ address, avatarSrc: null, name: await loadName(address) }));
+}
+
 async function loadBridgeIdentities(addresses: string[]) {
-  const resolved: VoterIdentity[] = [];
+  const resolved: Array<{ address: string; name: string | null }> = [];
 
   for (let index = 0; index < addresses.length; index += RESOLVE_IDENTITIES_LIMIT) {
     const batch = await qdnRequest<unknown>({
@@ -119,29 +203,29 @@ async function loadBridgeIdentities(addresses: string[]) {
 
     if (Array.isArray(batch)) {
       for (const entry of batch) {
-        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-          continue;
+        const candidate = record(entry);
+        const address = text(candidate?.address);
+
+        if (address) {
+          resolved.push({ address, name: normalizedName(candidate) });
         }
-
-        const record = entry as { address?: unknown; avatarSrc?: unknown; name?: unknown };
-        const address = typeof record.address === 'string' ? record.address.trim() : '';
-
-        if (!address) {
-          continue;
-        }
-
-        const name = normalizedName(record);
-        resolved.push({
-          address,
-          avatarSrc: name && typeof record.avatarSrc === 'string' && record.avatarSrc ? record.avatarSrc : null,
-          name,
-        });
       }
     }
   }
 
   const byAddress = new Map(resolved.map((identity) => [identity.address, identity]));
-  return addresses.map((address) => byAddress.get(address) ?? { address, avatarSrc: null, name: null });
+  return addresses.map((address) => {
+    const identity = byAddress.get(address);
+    return { address, avatarSrc: null, name: identity?.name ?? null };
+  });
+}
+
+export function revokeVoterIdentityUrls(identities: ReadonlyMap<string, VoterIdentity>) {
+  for (const identity of identities.values()) {
+    if (identity.avatarSrc?.startsWith('blob:')) {
+      URL.revokeObjectURL(identity.avatarSrc);
+    }
+  }
 }
 
 export async function loadVoterIdentities(addresses: string[], actions: string[]) {
@@ -157,11 +241,20 @@ export async function loadVoterIdentities(addresses: string[], actions: string[]
     try {
       identities = await loadBridgeIdentities(unique);
     } catch {
-      identities = await loadFallbackIdentities(unique, actions);
+      identities = await loadFallbackIdentities(unique);
     }
   } else {
-    identities = await loadFallbackIdentities(unique, actions);
+    identities = await loadFallbackIdentities(unique);
   }
 
-  return new Map(identities.map((identity) => [identity.address, identity]));
+  if (!hasAction(actions, 'FETCH_ACCOUNT_AVATAR')) {
+    return new Map(identities.map((identity) => [identity.address, identity]));
+  }
+
+  const withAvatars = await mapWithConcurrency(identities, async (identity) => ({
+    ...identity,
+    avatarSrc: await fetchAccountAvatar(identity.address, actions),
+  }));
+
+  return new Map(withAvatars.map((identity) => [identity.address, identity]));
 }

@@ -81,11 +81,11 @@ describe('poll result loading states', () => {
       votesLoading: false,
       voterIdentities: new Map([[
         'Qalice',
-        { address: 'Qalice', avatarSrc: 'https://node.test/avatar', name: 'Alice' },
+        { address: 'Qalice', avatarSrc: 'blob:mock/avatar', name: 'Alice' },
       ]]),
     });
 
-    expect(markup).toContain('src="https://node.test/avatar"');
+    expect(markup).toContain('src="blob:mock/avatar"');
     expect(markup).toContain('<strong>Alice</strong>');
     expect(markup).toContain('title="Qalice"');
     expect(markup).not.toContain('<td>Qalice</td>');

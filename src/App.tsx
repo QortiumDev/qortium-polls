@@ -13,7 +13,7 @@ import { getBridgeState, qdnRequest } from './qdnRequest';
 import { Reference } from './Reference';
 import type { BridgeState, HostInfo, PendingVote, Poll, PollVotes } from './types';
 import { Notice } from './ui';
-import { loadVoterIdentities, type VoterIdentity } from './voterIdentities';
+import { loadVoterIdentities, revokeVoterIdentityUrls, type VoterIdentity } from './voterIdentities';
 import { getPollWriteAvailability } from './writeAvailability';
 
 type Tab = 'browse' | 'create' | 'mine' | 'reference';
@@ -84,6 +84,7 @@ export function App() {
   const browseResultKeyRef = useRef('');
   const mineResultKeyRef = useRef('');
   const selectedRef = useRef<Poll | null>(null);
+  const voterIdentityUrlsRef = useRef<ReadonlyMap<string, VoterIdentity>>(new Map());
   const translate = useMemo(() => createTranslator(settings.language), [settings.language]);
   const bridgeActionsKey = bridge.actions.join('\u0000');
   const supports142 = versionAtLeast(host?.hostVersion);
@@ -108,6 +109,8 @@ export function App() {
     const addresses = votes?.voteDetails?.map((detail) => detail.voterAddress) ?? [];
 
     if (!selected || !addresses.length) {
+      revokeVoterIdentityUrls(voterIdentityUrlsRef.current);
+      voterIdentityUrlsRef.current = new Map();
       setVoterIdentities(new Map());
       return;
     }
@@ -117,17 +120,25 @@ export function App() {
     void loadVoterIdentities(addresses, bridge.actions)
       .then((identities) => {
         if (active) {
+          revokeVoterIdentityUrls(voterIdentityUrlsRef.current);
+          voterIdentityUrlsRef.current = identities;
           setVoterIdentities(identities);
+        } else {
+          revokeVoterIdentityUrls(identities);
         }
       })
       .catch(() => {
         if (active) {
+          revokeVoterIdentityUrls(voterIdentityUrlsRef.current);
+          voterIdentityUrlsRef.current = new Map();
           setVoterIdentities(new Map());
         }
       });
 
     return () => {
       active = false;
+      revokeVoterIdentityUrls(voterIdentityUrlsRef.current);
+      voterIdentityUrlsRef.current = new Map();
     };
   }, [selected?.pollId, votes, bridgeActionsKey]);
 

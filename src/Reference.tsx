@@ -1,11 +1,17 @@
 // Intentionally outside the i18n catalog: this is an always-English protocol reference.
 import { useState } from 'react';
+import { ReferenceNavigation } from './ReferenceNavigation';
 import { Copy } from 'lucide-react';
 import { copyTextToClipboard } from './clipboard';
+import { VOTE_WATCH_TIMEOUT_MS } from './pollConstants';
+import { POLL_LIMITS } from './pollValidation';
+import { POLL_PAGE_SIZE } from './BrowsePolls';
 
-export function Reference({ supports142 }: { supports142: boolean }) {
-  const [copied, setCopied] = useState('');
-  const snippets = {
+export function getPollReferenceExamples(supports142: boolean) {
+  return {
+    capabilities: "const actions = await qdnRequest({ action: 'SHOW_ACTIONS' });\n// Offer a write only when its action is advertised; Home still requires approval.",
+    read: `const response = await qdnRequest({ action: 'FETCH_NODE_API', path: '/polls/search?status=ALL&limit=${POLL_PAGE_SIZE}&offset=0&reverse=true' });\nif (!response.ok) throw new Error(response.body);\nconst polls = response.data;`,
+    confirmation: "const response = await qdnRequest({ action: 'FETCH_NODE_API', path: `/transactions/signature/${signature}` });\nif (!response.ok) throw new Error(response.body);\nconst confirmed = response.data.blockHeight > 0;\n// An unconfirmed or timed-out result is not proof of failure; reconcile before retrying.",
     create: [
       'await qdnRequest({',
       "  action: 'CREATE_POLL',",
@@ -20,7 +26,7 @@ export function Reference({ supports142 }: { supports142: boolean }) {
       'await qdnRequest({',
       "  action: 'VOTE_ON_POLL',",
       '  pollId: 42,',
-      supports142 ? '  optionIndexes: [1, 3],' : '  optionIndex: 1,',
+      supports142 ? '  optionIndexes: [1, 2],' : '  optionIndex: 1,',
       '});',
     ].join('\n'),
     update: [
@@ -35,19 +41,28 @@ export function Reference({ supports142 }: { supports142: boolean }) {
       '});',
     ].join('\n'),
   };
+}
 
-  async function copy(key: string, text: string) {
+export function Reference({ supports142 }: { supports142: boolean }) {
+  const [copied, setCopied] = useState('');
+  const snippets = getPollReferenceExamples(supports142);
+
+  async function copy(key: string, text: string, button: HTMLButtonElement) {
     setCopied(await copyTextToClipboard(text) ? key : 'unavailable');
+    button.focus({ preventScroll: true });
   }
 
   return (
-    <section className="workspace reference">
+    <section className="workspace reference" lang="en" dir="ltr">
       <h2>Developer Reference</h2>
       <p>
-        Always-English protocol reference. Core is authoritative; client validation is a fast preflight.
+        Qortium poll transaction contract, QAVS 1.5. Always-English protocol reference. Core is authoritative; client validation is a fast preflight.
       </p>
+      <ReferenceNavigation />
+      <p role="status" aria-live="polite" className="copy-status">{copied === 'unavailable' ? 'Clipboard unavailable. Select the code and copy it manually.' : copied ? `Copied ${copied} example.` : 'Code examples can be selected for manual copying.'}</p>
+      <div className="reference-scroll" role="region" aria-label="Developer reference content" tabIndex={0}>
       <div className="reference-grid">
-        <article className="card">
+        <article className="card" id="reference-contract" tabIndex={-1}>
           <h3>Transactions and validation</h3>
           <div className="table-wrap">
             <table>
@@ -62,10 +77,10 @@ export function Reference({ supports142 }: { supports142: boolean }) {
                   <td>CREATE_POLL</td>
                   <td>
                     <ul>
-                      <li>pollName: 3–400 UTF-8 bytes, Core-normalized (NFKC plus safe whitespace/invisible handling), globally unique</li>
-                      <li>description: up to 4000 bytes</li>
-                      <li>options: 2–1000, each 1–400 bytes, exact-unique</li>
-                      <li>startTime/endTime: in the future, start before end</li>
+                      <li>pollName: {POLL_LIMITS.minNameBytes}–{POLL_LIMITS.maxNameBytes} UTF-8 bytes, Core-normalized (NFKC plus safe whitespace/invisible handling), globally unique</li>
+                      <li>description: up to {POLL_LIMITS.maxDescriptionBytes} UTF-8 bytes</li>
+                      <li>options: {POLL_LIMITS.minOptions}–{POLL_LIMITS.maxOptions}, each {POLL_LIMITS.minOptionBytes}–{POLL_LIMITS.maxOptionBytes} UTF-8 bytes, exact-unique</li>
+                      <li>Optional startTime/endTime: epoch milliseconds in the future, start before end when both are supplied</li>
                     </ul>
                   </td>
                 </tr>
@@ -97,8 +112,9 @@ export function Reference({ supports142 }: { supports142: boolean }) {
             </table>
           </div>
         </article>
-        <article className="card">
+        <article className="card" id="reference-reads" tabIndex={-1}>
           <h3>Read endpoints</h3>
+          <p>Browse/search requests use {POLL_PAGE_SIZE} items per page with offset paging. Poll data is on-chain, not an app-owned QDN JSON schema. Poll names, options, votes and account addresses are public and durable; there is no private voting mode.</p>
           <code className="endpoint">GET /polls?limit&amp;offset&amp;reverse</code>
           <code className="endpoint">GET /polls/search?query&amp;prefixOnly&amp;owner&amp;status=ALL|OPEN|CLOSED&amp;hasEndTime&amp;fromTimestamp&amp;toTimestamp&amp;limit&amp;offset&amp;reverse</code>
           <code className="endpoint">GET /polls/id/{'{pollId}'}</code>
@@ -111,7 +127,7 @@ export function Reference({ supports142 }: { supports142: boolean }) {
             response once the transaction is confirmed.
           </p>
         </article>
-        <article className="card">
+        <article className="card" id="reference-results" tabIndex={-1}>
           <h3>Weights and results</h3>
           <p>
             Each option returns a count plus a raw weight (<code>blocksMinted</code>) and an effective weight.
@@ -122,28 +138,31 @@ export function Reference({ supports142 }: { supports142: boolean }) {
             Closed results are frozen at close.
           </p>
         </article>
-        <article className="card">
+        <article className="card" id="reference-bridge" tabIndex={-1}>
           <h3>Bridge, QAVS, and feature detection</h3>
           <ul>
             <li>Write actions trigger Home approval: CREATE_POLL, VOTE_ON_POLL, UPDATE_POLL. Reads use FETCH_NODE_API without approval.</li>
-            <li>Inspect available actions with SHOW_ACTIONS, then call GET_HOST_INFO. If GET_HOST_INFO throws, treat the host as older than 1.4.2.</li>
-            <li>Home 1.4.2 or newer is required for <code>startTime</code>, <code>newStartTime</code>, and <code>optionIndexes</code>.</li>
+            <li>Inspect SHOW_ACTIONS for action availability. This app uses GET_HOST_INFO only to select legacy field compatibility; if unavailable, scheduled-start and multi-option fields are omitted. A host version never grants write authority.</li>
+            <li>Legacy field compatibility began in Home 1.4.2 for <code>startTime</code>, <code>newStartTime</code>, and <code>optionIndexes</code>.</li>
             <li>On compatible public nodes, Home builds through <code>/polls/public/*</code>, validates the returned bytes, computes bounded MemoryPoW, and signs locally.</li>
-            <li>Older public nodes remain browse-only; call IS_USING_PUBLIC_NODE and trust SHOW_ACTIONS for action availability.</li>
+            <li>Older public nodes remain browse-only. IS_USING_PUBLIC_NODE describes the node mode; SHOW_ACTIONS determines advertised actions. The selected account must be unlocked and Home must approve each write. Plain-browser development is read-only.</li>
           </ul>
+          <p>The app watches votes for up to {VOTE_WATCH_TIMEOUT_MS / 60_000} minutes. Submission returns a signature, not confirmation. A timeout leaves the outcome unknown; check transaction and vote state before resubmitting. CREATE_POLL and UPDATE_POLL responses likewise need authoritative verification.</p>
+          <p>Open <code>?view=developers</code> for this workspace; <code>view=developer</code> and <code>view=reference</code> are read aliases. A recognized Developers view takes precedence over <code>tab=create|mine</code> and a numeric poll path. The poll path is retained while visiting Developers; returning to Browse restores it. Home parameters, repeated unknown keys and fragments survive navigation.</p>
           {(Object.entries(snippets) as [keyof typeof snippets, string][]).map(([key, snippet]) => (
             <div key={key} className="snippet">
               <div className="snippet-head">
                 <span>{key}</span>
-                <button className="minor-button" onClick={() => void copy(key, snippet)}>
+                <button className="minor-button" type="button" aria-label={`Copy ${key} example`} onClick={event => void copy(key, snippet, event.currentTarget)}>
                   <Copy size={15} />
                   {copied === key ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <pre>{snippet}</pre>
+              <pre aria-label={`${key} example`} tabIndex={0}>{snippet}</pre>
             </div>
           ))}
         </article>
+      </div>
       </div>
     </section>
   );

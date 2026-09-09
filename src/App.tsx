@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { BrowsePolls, POLL_PAGE_SIZE } from './BrowsePolls';
 import { CreatePoll } from './CreatePoll';
-import { buildPollLink, getCurrentPollRoute, getInitialPollRoute, getPollRouteUrl } from './deepLink';
+import { buildPollLink, getCurrentPollRoute, getInitialPollRoute, getPollRouteUrl, getPollTabRouteUrl } from './deepLink';
 import { applyDisplaySettings, getDisplaySettingsUpdateFromMessage, getInitialDisplaySettings } from './displaySettings';
 import { createTranslator } from './i18n';
 import { MyPolls } from './MyPolls';
@@ -10,6 +10,7 @@ import { coreRejectionKey, errorText, friendlyWriteError, getAccountVoteIndexes,
 import { PollDetail } from './PollDetail';
 import { validateVoteIndexes, validationMessageKey } from './pollValidation';
 import { getBridgeState, qdnRequest } from './qdnRequest';
+import { VOTE_WATCH_TIMEOUT_MS } from './pollConstants';
 import { Reference } from './Reference';
 import type { BridgeState, HostInfo, PendingVote, Poll, PollVotes } from './types';
 import { Notice } from './ui';
@@ -32,7 +33,6 @@ const emptyBridge: BridgeState = {
 const VOTE_WATCH_FAST_MS = 3_000;
 const VOTE_WATCH_SLOW_MS = 10_000;
 const VOTE_WATCH_FAST_WINDOW_MS = 30_000;
-const VOTE_WATCH_TIMEOUT_MS = 600_000;
 const VOTE_CONFIRMED_LINGER_MS = 6_000;
 
 function sortedIndexes(values: number[]) {
@@ -48,7 +48,7 @@ function sameIndexes(a: number[], b: number[]) {
 
 export function App() {
   const [initialPollRoute] = useState(getInitialPollRoute);
-  const [tab, setTab] = useState<Tab>('browse');
+  const [tab, setTab] = useState<Tab>(initialPollRoute.kind === 'workspace' ? initialPollRoute.tab : 'browse');
   const [bridge, setBridge] = useState(emptyBridge);
   const [host, setHost] = useState<HostInfo | null>(null);
   const [polls, setPolls] = useState<Poll[]>([]);
@@ -79,6 +79,7 @@ export function App() {
   );
   const [settings, setSettings] = useState(getInitialDisplaySettings);
   const openRequestRef = useRef(0);
+  const linkedRequestRef = useRef(0);
   const browseRequestRef = useRef(0);
   const mineRequestRef = useRef(0);
   const browseResultKeyRef = useRef('');
@@ -256,6 +257,7 @@ export function App() {
   }
 
   function closePoll(historyMode: Exclude<HistoryMode, 'none'> = 'replace') {
+    linkedRequestRef.current += 1;
     openRequestRef.current += 1;
     setSelected(null);
     setVotes(null);
@@ -265,7 +267,8 @@ export function App() {
     syncPollRoute(null, historyMode);
   }
 
-  async function openPoll(poll: Poll, historyMode: HistoryMode = 'push') {
+  async function openPoll(poll: Poll, historyMode: HistoryMode = 'push', preserveWorkspace = false) {
+    if (!preserveWorkspace) linkedRequestRef.current += 1;
     const requestId = openRequestRef.current + 1;
     const isRefreshingSelectedPoll = selectedRef.current?.pollId === poll.pollId;
     openRequestRef.current = requestId;
@@ -275,7 +278,7 @@ export function App() {
       setVotes(null);
     }
     setVotesLoading(true);
-    setTab('browse');
+    if (!preserveWorkspace) setTab('browse');
 
     if (historyMode !== 'none') {
       syncPollRoute(poll.pollId, historyMode);
@@ -303,6 +306,7 @@ export function App() {
   }
 
   async function openPollById(pollId: number, historyMode: HistoryMode = 'none') {
+    const linkedRequestId = ++linkedRequestRef.current;
     setDirectLinkState('loading');
 
     try {
@@ -312,9 +316,11 @@ export function App() {
         maxBytes: 100_000,
       }));
 
+      if (linkedRequestRef.current !== linkedRequestId) return;
       setDirectLinkState('none');
       await openPoll(poll, historyMode);
     } catch (error) {
+      if (linkedRequestRef.current !== linkedRequestId) return;
       console.error('Failed to load linked poll', error);
       const detail = errorText(error, '');
       setDirectLinkState(/POLL_NO_EXISTS|poll does not exist/i.test(detail) ? 'not-found' : 'error');
@@ -325,6 +331,9 @@ export function App() {
     // Poll reads do not depend on account or host context. Start them
     // immediately so a deep link is not held behind several bridge calls.
     void loadContext();
+    if (initialPollRoute.kind === 'workspace') {
+      window.history.replaceState(window.history.state, '', getPollTabRouteUrl(initialPollRoute.tab));
+    }
 
     if (initialPollRoute.kind === 'poll') {
       void openPollById(initialPollRoute.pollId);
@@ -336,9 +345,15 @@ export function App() {
   useEffect(() => {
     function onPopState() {
       const route = getCurrentPollRoute();
+      linkedRequestRef.current += 1;
+      setTab(route.kind === 'workspace' ? route.tab : 'browse');
+      setDirectLinkState('none');
 
-      if (route.kind === 'poll') {
-        void openPollById(route.pollId, 'none');
+      if (route.kind === 'workspace') {
+        setDirectLinkState('none');
+        return;
+      } else if (route.kind === 'poll') {
+        if (selectedRef.current?.pollId !== route.pollId) void openPollById(route.pollId, 'none');
       } else if (route.kind === 'invalid') {
         openRequestRef.current += 1;
         setSelected(null);
@@ -359,12 +374,17 @@ export function App() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
+  // Direct links and Back/Forward enter My polls without a tab-button click.
+  useEffect(() => {
+    if (tab === 'mine' && account) void loadPolls(0, { query: '', owner: account, status: 'ALL' }, 'mine');
+  }, [tab, account]);
+
   function refresh() {
     void loadContext();
     void loadPolls(offset);
 
     if (selected) {
-      void openPoll(selected, 'none');
+      void openPoll(selected, 'none', true);
     }
   }
 
@@ -449,7 +469,7 @@ export function App() {
         : current);
 
       if (selectedRef.current?.pollId === watched.pollId) {
-        void openPoll(selectedRef.current, 'none');
+        void openPoll(selectedRef.current, 'none', true);
       }
 
       window.setTimeout(() => {
@@ -595,7 +615,7 @@ export function App() {
     );
   }
 
-  if (selected) {
+  if (selected && tab === 'browse') {
     return (
       <PollDetail
         poll={selected}
@@ -644,10 +664,16 @@ export function App() {
             key={key}
             className={tab === key ? 'tab active' : 'tab'}
             onClick={() => {
+              linkedRequestRef.current += 1;
               setTab(key);
-
-              if (key === 'mine' && account) {
-                void loadPolls(0, { query: '', owner: account, status: 'ALL' }, 'mine');
+              setDirectLinkState('none');
+              const url = getPollTabRouteUrl(key);
+              if (`${location.pathname}${location.search}${location.hash}` !== url) {
+                window.history.pushState(window.history.state, '', url);
+              }
+              if (key === 'browse') {
+                const route = getCurrentPollRoute();
+                if (route.kind === 'poll' && selectedRef.current?.pollId !== route.pollId) void openPollById(route.pollId);
               }
             }}
           >

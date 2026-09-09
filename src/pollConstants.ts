@@ -1,0 +1,1 @@
+export const VOTE_WATCH_TIMEOUT_MS = 600_000;

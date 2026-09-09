@@ -5,6 +5,7 @@ import {
   getCurrentPollRoute,
   getInitialPollRoute,
   getPollRouteUrl,
+  getPollTabRouteUrl,
   parsePollRoute,
 } from './deepLink';
 
@@ -109,5 +110,35 @@ describe('poll deep links', () => {
         {},
       ),
     ).toBe('/43?theme=light&accent=blue#details');
+  });
+});
+
+
+describe('Developers workspace routing', () => {
+  it.each(['developers', 'developer', 'reference'])('reads view=%s ahead of a poll path and another tab', view => {
+    expect(getInitialPollRoute({ pathname: '/42', search: `?view=${view}&tab=create` }, {})).toEqual({ kind: 'workspace', tab: 'reference' });
+    expect(getCurrentPollRoute({ pathname: '/42', search: `?view=${view}` }, {})).toEqual({ kind: 'workspace', tab: 'reference' });
+  });
+  it('preserves the poll context and host values while canonicalizing aliases', () => {
+    const url = getPollTabRouteUrl('reference', { pathname: '/render/APP/Mirror/id/42', search: '?view=reference&view=developer&tab=mine&theme=dark&future=a&future=b&qdnHomeBridge=test', hash: '#reference-reads' });
+    const parsed = new URL(url, 'https://example.test');
+    expect(parsed.pathname).toBe('/render/APP/Mirror/id/42');
+    expect(parsed.searchParams.getAll('view')).toEqual(['developers']);
+    expect(parsed.searchParams.has('tab')).toBe(false);
+    expect(parsed.searchParams.getAll('future')).toEqual(['a', 'b']);
+    expect(parsed.searchParams.get('qdnHomeBridge')).toBe('test');
+    expect(parsed.hash).toBe('#reference-reads');
+    expect(getCurrentPollRoute({ pathname: parsed.pathname, search: parsed.search }, { _qdnBase: '/render/APP/Mirror/id' })).toEqual({ kind: 'workspace', tab: 'reference' });
+    const browse = new URL(getPollTabRouteUrl('browse', parsed), parsed);
+    expect(getCurrentPollRoute(browse, { _qdnBase: '/render/APP/Mirror/id', _qdnPath: '/99' })).toEqual({ kind: 'poll', pollId: 42 });
+  });
+  it('clears workspace keys when opening another poll and keeps unknown query repetitions', () => {
+    expect(getPollRouteUrl(7, { pathname: '/42', search: '?view=developers&tab=mine&future=a&future=b', hash: '#x' }, {})).toBe('/7?future=a&future=b#x');
+    expect(getCurrentPollRoute({ pathname: '/42', search: '?view=unknown' }, {})).toEqual({ kind: 'poll', pollId: 42 });
+  });
+  it.each(['create', 'mine'] as const)('round-trips the %s workspace without losing a poll path', tab => {
+    const url = new URL(getPollTabRouteUrl(tab, { pathname: '/42', search: '?view=developers' }), 'https://example.test');
+    expect(getCurrentPollRoute(url, {})).toEqual({ kind: 'workspace', tab });
+    expect(url.pathname).toBe('/42');
   });
 });

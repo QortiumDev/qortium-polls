@@ -1,9 +1,9 @@
 {
   "name": "qortium-polls",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "private": true,
   "license": "0BSD",
-  "description": "Create, browse, and vote on Qortium on-chain polls — and a living reference for the poll/vote system.",
+  "description": "Create, browse, and vote on Qortium on-chain polls \u2014 and a living reference for the poll/vote system.",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",

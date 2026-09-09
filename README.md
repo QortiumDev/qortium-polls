@@ -27,7 +27,7 @@ Modern keeps a wider outer gutter while Classic and Fun stay tighter.
 ## Versioning
 
 Polls follows the Qortium app versioning standard (QAVS): the current app
-version is 1.5.9, where the `1.5` prefix declares the minimum Qortium platform
+version is 1.5.10, where the `1.5` prefix declares the minimum Qortium platform
 level the app is built against and the last number is the app's own release
 counter. The build emits a `qortium-app.json` manifest (see `vite.config.ts`)
 that Qortium Home reads from the published root.
@@ -58,3 +58,14 @@ Publishing is an explicit operator action; builds and tests never publish.
 ## Current Limits
 
 Poll names are 3–400 UTF-8 bytes; descriptions are at most 4000; polls have 2–1000 unique options of 1–400 bytes each. Validation here mirrors Core but Core remains authoritative.
+
+## Developers workspace
+
+This maintenance pass targets Qortium only. Open `?view=developers` for the
+always-English in-app contract. `view=developer` and `view=reference` are read
+aliases; recognized Developers views take precedence over other app routes.
+Polls preserves the numeric poll path while visiting Developers; Browse returns to that poll. Create and My polls use `tab=create` and `tab=mine`.
+Home parameters, repeated unknown query keys and fragments survive navigation.
+Section links use the current render URL and scroll only the reference pane.
+Copy feedback is announced; when copying is unavailable, examples stay selectable.
+The reference imports implementation limits and has route/rendered-contract tests.

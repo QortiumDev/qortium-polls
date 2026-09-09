@@ -18,6 +18,7 @@ type QdnHostGlobals = {
 };
 
 export type InitialPollRoute =
+  | { kind: 'workspace'; tab: 'reference' | 'create' | 'mine' }
   | { kind: 'none' }
   | { kind: 'invalid'; path: string }
   | { kind: 'poll'; pollId: number };
@@ -87,12 +88,21 @@ export function parsePollRoute(path: string): InitialPollRoute {
   return { kind: 'poll', pollId };
 }
 
+function getWorkspace(location?: LocationLike): InitialPollRoute | null {
+  const query = new URLSearchParams(resolveLocation(location).search ?? '');
+  if (['developers', 'developer', 'reference'].includes(query.get('view') ?? '')) {
+    return { kind: 'workspace', tab: 'reference' };
+  }
+  const tab = query.get('tab');
+  return tab === 'create' || tab === 'mine' ? { kind: 'workspace', tab } : null;
+}
+
 export function getInitialPollRoute(location?: LocationLike, host?: QdnHostGlobals) {
-  return parsePollRoute(getInitialPath(location, host));
+  return getWorkspace(location) ?? parsePollRoute(getInitialPath(location, host));
 }
 
 export function getCurrentPollRoute(location?: LocationLike, host?: QdnHostGlobals) {
-  return parsePollRoute(getBrowserPath(location, host));
+  return getWorkspace(location) ?? parsePollRoute(getBrowserPath(location, host));
 }
 
 export function getPollRouteUrl(pollId: number | null, location?: LocationLike, host?: QdnHostGlobals) {
@@ -102,7 +112,7 @@ export function getPollRouteUrl(pollId: number | null, location?: LocationLike, 
   const basePath = qdnBase || (/^\/(?:\d+)\/?$/.test(pathname) ? '' : pathname.replace(/\/+$/, ''));
   const routePath = pollId === null ? basePath || '/' : `${basePath}/${pollId}`;
 
-  return `${routePath}${resolvedLocation.search ?? ''}${resolvedLocation.hash ?? ''}`;
+  return `${routePath}${workspaceSearch('browse', resolvedLocation.search)}${resolvedLocation.hash ?? ''}`;
 }
 
 export function getAppBaseAddress(host?: QdnHostGlobals) {
@@ -116,4 +126,19 @@ export function getAppBaseAddress(host?: QdnHostGlobals) {
 
 export function buildPollLink(pollId: number, host?: QdnHostGlobals) {
   return `${getAppBaseAddress(host)}/${pollId}`;
+}
+
+function workspaceSearch(tab: 'browse' | 'create' | 'mine' | 'reference', search = '') {
+  const query = new URLSearchParams(search);
+  query.delete('view');
+  query.delete('tab');
+  if (tab === 'reference') query.set('view', 'developers');
+  else if (tab !== 'browse') query.set('tab', tab);
+  return query.size ? `?${query}` : '';
+}
+
+/** Keep the selected poll path as context while visiting another workspace. */
+export function getPollTabRouteUrl(tab: 'browse' | 'create' | 'mine' | 'reference', location?: LocationLike) {
+  const current = resolveLocation(location);
+  return `${current.pathname || '/'}${workspaceSearch(tab, current.search)}${current.hash ?? ''}`;
 }
